@@ -1,0 +1,84 @@
+#pragma once
+
+#include <Arduino.h>
+#include <ArduinoJson.h>
+#include <map>
+
+/**
+ * Health Monitor
+ * Constitutional Principle V: Observability + Principle I: Reliability-First
+ * 
+ * Comprehensive system health monitoring and reporting
+ * Tracks component status, system metrics, and performance
+ */
+
+namespace Diagnostics {
+
+enum class ComponentStatus {
+    UNKNOWN = 0,
+    HEALTHY = 1,
+    WARNING = 2,
+    ERROR = 3,
+    OFFLINE = 4
+};
+
+struct SystemHealth {
+    unsigned long boot_time;
+    unsigned long uptime_seconds;
+    uint32_t restart_count;
+    float total_uptime_hours;
+    
+    size_t free_heap_bytes;
+    size_t min_free_heap_bytes = SIZE_MAX;
+    uint32_t cpu_frequency_mhz;
+    float temperature_celsius;
+};
+
+struct ComponentHealth {
+    ComponentStatus status = ComponentStatus::UNKNOWN;
+    unsigned long last_update = 0;
+    String details;
+};
+
+class HealthMonitor {
+public:
+    static HealthMonitor& getInstance();
+    
+    void begin();
+    void update();
+    
+    // Component health reporting
+    void reportComponentStatus(const String& component, ComponentStatus status, 
+                              const String& details = "");
+    ComponentStatus getComponentStatus(const String& component) const;
+    
+    // Health reports
+    String getHealthReport() const;
+    String getMetricsJson() const;
+    
+    // System health accessors
+    const SystemHealth& getSystemHealth() const { return system_health_; }
+    
+private:
+    HealthMonitor();
+    static HealthMonitor* instance_;
+    
+    bool initialized_;
+    unsigned long last_update_;
+    
+    SystemHealth system_health_;
+    std::map<String, ComponentHealth> component_health_;
+    
+    static const unsigned long UPDATE_INTERVAL_MS = 5000; // 5 seconds
+    
+    void updateSystemMetrics();
+    void checkComponentHealth();
+    void saveHealthData();
+    
+    String statusToString(ComponentStatus status) const;
+    String getOverallHealthStatus() const;
+    float getResponseTimeCompliance() const;
+    float getErrorRate() const;
+};
+
+} // namespace Diagnostics

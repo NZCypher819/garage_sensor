@@ -1,0 +1,53 @@
+# PlatformIO
+.pio/
+.vscode/
+.clang_complete
+.gcc-flags.json
+.ccls
+
+# Build artifacts
+*.o
+*.elf
+*.bin
+*.map
+
+# IDE files
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Logs and temps
+*.log
+*.tmp
+*.temp
+
+# Coverage reports
+coverage/
+coverage.info
+*.gcov
+*.gcda
+*.gcno
+
+# Environment and secrets
+.env
+*.pem
+*.key
+secrets.json
+
+# Documentation build
+docs/_build/
+
+# Python
+__pycache__/
+*.pyc
+
+# Test artifacts
+test_results/
+.coverage
+htmlcov/
+
+# ESP32 specific
+sdkconfig
+sdkconfig.old

@@ -1,0 +1,185 @@
+#pragma once
+
+#include <Arduino.h>
+#include <functional>
+#include <vector>
+#include "../diagnostics/logger.h"
+#include "../utils/timer_utils.h"
+#include "../diagnostics/error_handler.h"
+
+/**
+ * E3JK-RR11 IR Beam Sensor Driver
+ * Constitutional Principle I: Reliability-First
+ * 
+ * High-precision beam break detection with constitutional compliance:
+ * - <100ms response time requirement
+ * - Comprehensive sensor validation and debouncing
+ * - Error recovery and fault detection
+ * - Structured logging for observability
+ */
+
+namespace Sensors {
+
+enum class BeamState {
+    CLEAR = 0,        // Beam is unobstructed (sensor HIGH)
+    BLOCKED = 1,      // Beam is blocked (sensor LOW) 
+    UNKNOWN = 255     // Sensor state unknown/fault
+};
+
+enum class SensorHealth {
+    HEALTHY = 0,      // Operating normally
+    WARNING = 1,      // Intermittent issues detected
+    ERROR = 2,        // Sensor failure detected
+    OFFLINE = 3       // Sensor not responding
+};
+
+struct SensorReading {
+    BeamState state;
+    unsigned long timestamp_us;
+    bool valid;
+    SensorHealth health;
+    
+    SensorReading() : state(BeamState::UNKNOWN), timestamp_us(0), valid(false), health(SensorHealth::OFFLINE) {}
+};
+
+struct SensorStats {
+    unsigned long total_readings;
+    unsigned long valid_readings;
+    unsigned long state_changes;
+    unsigned long debounce_rejections;
+    unsigned long response_time_violations;
+    unsigned long last_reading_time_us;
+    
+    SensorStats() : total_readings(0), valid_readings(0), state_changes(0), 
+                   debounce_rejections(0), response_time_violations(0), last_reading_time_us(0) {}
+};
+
+/**
+ * E3JK-RR11 Sensor Driver Class
+ * 
+ * Features:
+ * - Hardware debouncing with configurable timing
+ * - Response time monitoring (<100ms constitutional requirement)
+ * - Interrupt-driven state detection
+ * - Health monitoring and fault detection
+ * - Event callbacks for real-time response
+ */
+class E3JKSensor {
+public:
+    // Callback type for beam state changes
+    using StateChangeCallback = std::function<void(BeamState oldState, BeamState newState, unsigned long timestamp_us)>;
+    
+    /**
+     * Constructor
+     * @param pin GPIO pin connected to E3JK-RR11 output
+     * @param activeState Whether sensor output is active HIGH or LOW when beam is clear
+     */
+    E3JKSensor(int pin, bool activeState = true);
+    
+    /**
+     * Initialize sensor hardware and interrupt handling
+     * @return true if initialization successful
+     */
+    bool begin();
+    
+    /**
+     * Read current sensor state with validation
+     * @return SensorReading with current state and metadata
+     */
+    SensorReading readSensor();
+    
+    /**
+     * Get current beam state (cached from last interrupt)
+     * @return Current beam state
+     */
+    BeamState getCurrentState() const { return current_state_; }
+    
+    /**
+     * Register callback for beam state changes
+     * @param callback Function to call on state change
+     */
+    void onStateChange(StateChangeCallback callback);
+    
+    /**
+     * Set debounce timing parameters
+     * @param debounce_ms Minimum time between valid state changes
+     */
+    void setDebounceTime(unsigned long debounce_ms);
+    
+    /**
+     * Enable/disable sensor monitoring
+     * @param enabled true to enable sensor readings
+     */
+    void setEnabled(bool enabled);
+    
+    /**
+     * Get sensor health status
+     * @return Current sensor health state
+     */
+    SensorHealth getHealth() const { return sensor_health_; }
+    
+    /**
+     * Get sensor performance statistics
+     * @return SensorStats structure with operational data
+     */
+    SensorStats getStats() const { return stats_; }
+    
+    /**
+     * Reset sensor statistics
+     */
+    void resetStats();
+    
+    /**
+     * Perform sensor self-test
+     * @return true if sensor is functioning correctly
+     */
+    bool performSelfTest();
+    
+    /**
+     * Get sensor diagnostic data for logging
+     * @return JSON string with diagnostic information
+     */
+    String getDiagnosticData() const;
+    
+    /**
+     * Interrupt service routine - called on GPIO state change
+     * Should be called from Arduino attachInterrupt callback
+     */
+    void handleInterrupt();
+    
+private:
+    // Configuration
+    int pin_;
+    bool active_state_;
+    bool enabled_;
+    unsigned long debounce_time_ms_;
+    
+    // State tracking
+    BeamState current_state_;
+    BeamState last_validated_state_;
+    SensorHealth sensor_health_;
+    unsigned long last_change_time_us_;
+    unsigned long last_health_check_us_;
+    
+    // Statistics and monitoring
+    SensorStats stats_;
+    
+    // Callbacks
+    std::vector<StateChangeCallback> state_callbacks_;
+    
+    // Internal methods
+    void updateHealth();
+    bool validateStateChange(BeamState newState, unsigned long timestamp_us);
+    void notifyStateChange(BeamState oldState, BeamState newState, unsigned long timestamp_us);
+    BeamState readRawState();
+    bool checkResponseTime(unsigned long reading_time_us);
+    
+    // Constants
+    static const unsigned long DEFAULT_DEBOUNCE_MS = 50;        // 50ms debounce time
+    static const unsigned long MAX_RESPONSE_TIME_US = 100000;   // 100ms constitutional requirement
+    static const unsigned long HEALTH_CHECK_INTERVAL_US = 1000000; // 1 second health checks
+    static const unsigned long SENSOR_TIMEOUT_US = 5000000;    // 5 seconds = sensor offline
+    static const int MIN_READINGS_FOR_HEALTH = 10;             // Minimum readings before health assessment
+};
+
+} // namespace Sensors

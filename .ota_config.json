@@ -1,0 +1,42 @@
+{
+  "github": {
+    "owner": "your-github-username",
+    "repo": "garage-sensorv2",
+    "api_base_url": "https://api.github.com",
+    "releases_endpoint": "/repos/{owner}/{repo}/releases",
+    "download_timeout_seconds": 300
+  },
+  "security": {
+    "https_required": true,
+    "certificate_validation": true,
+    "root_ca_fingerprint": "sha256/DigiCertGlobalRootCA",
+    "integrity_validation": true,
+    "rollback_enabled": true,
+    "max_boot_failures": 3
+  },
+  "update_policy": {
+    "auto_check_enabled": true,
+    "check_interval_hours": 24,
+    "auto_install": false,
+    "backup_before_update": true,
+    "require_manual_approval": true
+  },
+  "version_constraints": {
+    "min_version": "1.0.0",
+    "allow_downgrade": false,
+    "beta_channel": false,
+    "development_channel": false
+  },
+  "hardware_requirements": {
+    "min_free_space_bytes": 2097152,
+    "min_free_ram_bytes": 65536,
+    "target_device": "ESP32-S3",
+    "required_features": ["WIFI", "HTTPS", "SPIFFS"]
+  },
+  "logging": {
+    "log_level": "INFO",
+    "ota_log_retention_days": 30,
+    "performance_metrics": true,
+    "diagnostic_data": true
+  }
+}

@@ -1,0 +1,377 @@
+#include "error_handler.h"
+#include "logger.h"
+#include <map>
+#include <vector>
+#include <SPIFFS.h>
+
+/**
+ * Error Handling Implementation
+ * Constitutional Principle I: Reliability-First
+ * 
+ * Comprehensive error management with recovery and graceful degradation
+ */
+
+namespace Core {
+
+ErrorHandler* ErrorHandler::instance_ = nullptr;
+
+ErrorHandler& ErrorHandler::getInstance() {
+    if (!instance_) {
+        instance_ = new ErrorHandler();
+    }
+    return *instance_;
+}
+
+ErrorHandler::ErrorHandler() : initialized_(false) {}
+
+void ErrorHandler::begin() {
+    error_history_.clear();
+    recovery_callbacks_.clear();
+    initialized_ = true;
+    
+    LOG_INFO("ErrorHandler", "Error handling system initialized");
+}
+
+void ErrorHandler::reportError(ErrorCode code, ErrorSeverity severity, 
+                              const String& component, const String& description,
+                              const JsonObject& context) {
+    
+    if (!initialized_) {
+        Serial.println("[EARLY ERROR] Error handler not initialized");
+        return;
+    }
+    
+    ErrorInfo error;
+    error.code = code;
+    error.severity = severity;
+    error.component = component;
+    error.description = description;
+    error.timestamp = millis();
+    error.context = context;
+    
+    // Add to history (with size limit)
+    if (error_history_.size() >= MAX_ERROR_HISTORY) {
+        error_history_.erase(error_history_.begin());
+    }
+    error_history_.push_back(error);
+    
+    // Log the error
+    JsonDocument logData;
+    logData["error_code"] = (int)code;
+    logData["code_name"] = errorCodeToString(code);
+    logData["severity"] = severityToString(severity);
+    logData["description"] = description;
+    if (!context.isNull()) {
+        logData["context"] = context;
+    }
+    
+    switch (severity) {
+        case ErrorSeverity::FATAL:
+        case ErrorSeverity::CRITICAL:
+            LOG_ERROR(component, description, logData.as<JsonObject>());
+            break;
+        case ErrorSeverity::ERROR:
+            LOG_ERROR(component, description, logData.as<JsonObject>());
+            break;
+        case ErrorSeverity::WARNING:
+            LOG_WARN(component, description, logData.as<JsonObject>());
+            break;
+        case ErrorSeverity::INFO:
+            LOG_INFO(component, description, logData.as<JsonObject>());
+            break;
+    }
+    
+    // Attempt automatic recovery
+    if (severity >= ErrorSeverity::ERROR) {
+        bool recovered = attemptRecovery(code);
+        if (!recovered && severity >= ErrorSeverity::CRITICAL) {
+            // Enable degraded mode for critical errors
+            FaultDetector::getInstance().enableDegradedMode(description);
+        }
+    }
+    
+    // Trigger watchdog for fatal errors
+    if (severity == ErrorSeverity::FATAL) {
+        triggerWatchdog();
+    }
+}
+
+bool ErrorHandler::attemptRecovery(ErrorCode code) {
+    auto it = recovery_callbacks_.find(code);
+    if (it != recovery_callbacks_.end()) {
+        StaticJsonDocument<512> recoveryDoc;
+        recoveryDoc["error_code"] = (int)code;
+        LOG_INFO("ErrorHandler", "Attempting automatic recovery", recoveryDoc.as<JsonObject>());
+        
+        bool success = it->second(code, JsonObject());
+        
+        if (success) {
+            StaticJsonDocument<512> successDoc;
+            successDoc["error_code"] = (int)code;
+            LOG_INFO("ErrorHandler", "Recovery successful", successDoc.as<JsonObject>());
+        } else {
+            StaticJsonDocument<512> failDoc;
+            failDoc["error_code"] = (int)code;
+            LOG_WARN("ErrorHandler", "Recovery failed", failDoc.as<JsonObject>());
+        }
+        
+        return success;
+    }
+    
+    // Built-in recovery strategies
+    switch (code) {
+        case ErrorCode::WIFI_CONNECTION_FAILED:
+            // Will be handled by WiFi manager
+            return false;
+            
+        case ErrorCode::SPIFFS_MOUNT_FAILED:
+            // Attempt to format and remount
+            LOG_INFO("ErrorHandler", "Attempting SPIFFS format and remount");
+            SPIFFS.format();
+            return SPIFFS.begin(true);
+            
+        case ErrorCode::SENSOR_FAILURE:
+            // Reset sensor GPIO configuration
+            LOG_INFO("ErrorHandler", "Attempting sensor reset");
+            // Implementation depends on sensor driver
+            return false;
+            
+        default:
+            return false;
+    }
+}
+
+bool ErrorHandler::hasActiveErrors() const {
+    for (const auto& error : error_history_) {
+        if (error.severity >= ErrorSeverity::ERROR) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool ErrorHandler::hasCriticalErrors() const {
+    for (const auto& error : error_history_) {
+        if (error.severity >= ErrorSeverity::CRITICAL) {
+            return true;
+        }
+    }
+    return false;
+}
+
+ErrorSeverity ErrorHandler::getHighestSeverity() const {
+    ErrorSeverity highest = ErrorSeverity::INFO;
+    for (const auto& error : error_history_) {
+        if (error.severity > highest) {
+            highest = error.severity;
+        }
+    }
+    return highest;
+}
+
+String ErrorHandler::getErrorReport() const {
+    JsonDocument doc;
+    JsonArray errors = doc.to<JsonArray>();
+    
+    for (const auto& error : error_history_) {
+        JsonObject errorObj = errors.add<JsonObject>();
+        errorObj["timestamp"] = error.timestamp;
+        errorObj["code"] = (int)error.code;
+        errorObj["code_name"] = errorCodeToString(error.code);
+        errorObj["severity"] = severityToString(error.severity);
+        errorObj["component"] = error.component;
+        errorObj["description"] = error.description;
+    }
+    
+    String result;
+    serializeJsonPretty(doc, result);
+    return result;
+}
+
+void ErrorHandler::clearErrorHistory() {
+    error_history_.clear();
+    LOG_INFO("ErrorHandler", "Error history cleared");
+}
+
+void ErrorHandler::registerRecoveryCallback(ErrorCode code, RecoveryCallback callback) {
+    recovery_callbacks_[code] = callback;
+    StaticJsonDocument<512> callbackDoc;
+    callbackDoc["error_code"] = (int)code;
+    LOG_INFO("ErrorHandler", "Recovery callback registered", callbackDoc.as<JsonObject>());
+}
+
+String ErrorHandler::errorCodeToString(ErrorCode code) const {
+    switch (code) {
+        case ErrorCode::NONE: return "NONE";
+        case ErrorCode::GPIO_FAILURE: return "GPIO_FAILURE";
+        case ErrorCode::SENSOR_FAILURE: return "SENSOR_FAILURE";
+        case ErrorCode::LED_FAILURE: return "LED_FAILURE";
+        case ErrorCode::PWM_FAILURE: return "PWM_FAILURE";
+        case ErrorCode::WIFI_CONNECTION_FAILED: return "WIFI_CONNECTION_FAILED";
+        case ErrorCode::HTTPS_REQUEST_FAILED: return "HTTPS_REQUEST_FAILED";
+        case ErrorCode::OTA_DOWNLOAD_FAILED: return "OTA_DOWNLOAD_FAILED";
+        case ErrorCode::SPIFFS_MOUNT_FAILED: return "SPIFFS_MOUNT_FAILED";
+        case ErrorCode::CONFIG_LOAD_FAILED: return "CONFIG_LOAD_FAILED";
+        case ErrorCode::LOG_WRITE_FAILED: return "LOG_WRITE_FAILED";
+        case ErrorCode::MEMORY_ALLOCATION_FAILED: return "MEMORY_ALLOCATION_FAILED";
+        case ErrorCode::WATCHDOG_TIMEOUT: return "WATCHDOG_TIMEOUT";
+        case ErrorCode::CRITICAL_COMPONENT_FAILURE: return "CRITICAL_COMPONENT_FAILURE";
+        case ErrorCode::INVALID_CONFIGURATION: return "INVALID_CONFIGURATION";
+        case ErrorCode::RESPONSE_TIME_VIOLATION: return "RESPONSE_TIME_VIOLATION";
+        case ErrorCode::SENSOR_VALIDATION_FAILED: return "SENSOR_VALIDATION_FAILED";
+        default: return "UNKNOWN";
+    }
+}
+
+String ErrorHandler::severityToString(ErrorSeverity severity) const {
+    switch (severity) {
+        case ErrorSeverity::INFO: return "INFO";
+        case ErrorSeverity::WARNING: return "WARNING";
+        case ErrorSeverity::ERROR: return "ERROR";
+        case ErrorSeverity::CRITICAL: return "CRITICAL";
+        case ErrorSeverity::FATAL: return "FATAL";
+        default: return "UNKNOWN";
+    }
+}
+
+void ErrorHandler::triggerWatchdog() {
+    LOG_ERROR("ErrorHandler", "Fatal error - triggering watchdog reset");
+    ESP.restart();
+}
+
+// FaultDetector implementation
+FaultDetector* FaultDetector::instance_ = nullptr;
+
+FaultDetector& FaultDetector::getInstance() {
+    if (!instance_) {
+        instance_ = new FaultDetector();
+    }
+    return *instance_;
+}
+
+FaultDetector::FaultDetector() : degraded_mode_(false), last_health_check_(0), initialized_(false) {}
+
+void FaultDetector::begin() {
+    component_status_.clear();
+    degraded_mode_ = false;
+    degradation_reason_ = "";
+    last_health_check_ = millis();
+    initialized_ = true;
+    
+    LOG_INFO("FaultDetector", "Fault detection system initialized");
+}
+
+void FaultDetector::checkSystemHealth() {
+    if (!initialized_ || (millis() - last_health_check_) < HEALTH_CHECK_INTERVAL_MS) {
+        return;
+    }
+    
+    last_health_check_ = millis();
+    
+    // Check memory health
+    size_t freeHeap = ESP.getFreeHeap();
+    if (freeHeap < 10000) { // Less than 10KB free
+        reportComponentHealth("Memory", false, "Low memory: " + String(freeHeap) + " bytes");
+    } else {
+        reportComponentHealth("Memory", true, "Free: " + String(freeHeap) + " bytes");
+    }
+    
+    // Check component health status
+    int unhealthyComponents = 0;
+    for (const auto& pair : component_status_) {
+        if (!pair.second.healthy) {
+            unhealthyComponents++;
+        }
+    }
+    
+    if (unhealthyComponents > 0) {
+        StaticJsonDocument<512> healthDoc;
+        healthDoc["unhealthy_components"] = unhealthyComponents;
+        LOG_WARN("FaultDetector", "System health check found issues", healthDoc.as<JsonObject>());
+    }
+}
+
+void FaultDetector::reportComponentHealth(const String& component, bool healthy, const String& details) {
+    ComponentHealth& health = component_status_[component];
+    
+    bool statusChanged = (health.healthy != healthy);
+    
+    health.healthy = healthy;
+    health.lastCheckTime = millis();
+    
+    if (!healthy) {
+        health.failureCount++;
+        health.lastError = details;
+        
+        if (statusChanged) {
+            StaticJsonDocument<512> degradedDoc;
+            degradedDoc["component"] = component.c_str();
+            degradedDoc["details"] = details.c_str();
+            LOG_WARN("FaultDetector", "Component health degraded", degradedDoc.as<JsonObject>());
+        }
+    } else {
+        if (statusChanged && health.failureCount > 0) {
+            StaticJsonDocument<512> restoredDoc;
+            restoredDoc["component"] = component.c_str();
+            restoredDoc["details"] = details.c_str();
+            LOG_INFO("FaultDetector", "Component health restored", restoredDoc.as<JsonObject>());
+        }
+    }
+}
+
+void FaultDetector::enableDegradedMode(const String& reason) {
+    if (!degraded_mode_) {
+        degraded_mode_ = true;
+        degradation_reason_ = reason;
+        StaticJsonDocument<512> degradedModeDoc;
+        degradedModeDoc["reason"] = reason.c_str();
+        LOG_WARN("FaultDetector", "System entering degraded mode", degradedModeDoc.as<JsonObject>());
+    }
+}
+
+void FaultDetector::disableDegradedMode() {
+    if (degraded_mode_) {
+        degraded_mode_ = false;
+        degradation_reason_ = "";
+        LOG_INFO("FaultDetector", "System exiting degraded mode");
+    }
+}
+
+bool FaultDetector::isDegradedMode() const {
+    return degraded_mode_;
+}
+
+bool FaultDetector::isComponentHealthy(const String& component) const {
+    auto it = component_status_.find(component);
+    if (it == component_status_.end()) {
+        return true; // Unknown components assumed healthy
+    }
+    return it->second.healthy;
+}
+
+String FaultDetector::getHealthReport() const {
+    JsonDocument doc;
+    JsonObject report = doc.to<JsonObject>();
+    
+    report["degraded_mode"] = degraded_mode_;
+    if (degraded_mode_) {
+        report["degradation_reason"] = degradation_reason_;
+    }
+    
+    JsonObject components = report["components"].to<JsonObject>();
+    for (const auto& pair : component_status_) {
+        JsonObject compHealth = components[pair.first].to<JsonObject>();
+        compHealth["healthy"] = pair.second.healthy;
+        compHealth["failure_count"] = pair.second.failureCount;
+        compHealth["last_check"] = pair.second.lastCheckTime;
+        if (!pair.second.lastError.isEmpty()) {
+            compHealth["last_error"] = pair.second.lastError;
+        }
+    }
+    
+    String result;
+    serializeJsonPretty(doc, result);
+    return result;
+}
+
+} // namespace Core

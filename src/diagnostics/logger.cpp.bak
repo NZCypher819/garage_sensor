@@ -1,0 +1,186 @@
+#include "logger.h"
+#include <Arduino.h>
+#include <WiFi.h>
+#include <SPIFFS.h>
+#include <ArduinoJson.h>
+
+/**
+ * Constitutional Principle V: Observability
+ * 
+ * Structured logging system with multiple output targets
+ * Provides real-time diagnostics and historical data collection
+ */
+
+namespace Diagnostics {
+
+Logger* Logger::instance_ = nullptr;
+
+Logger& Logger::getInstance() {
+    if (!instance_) {
+        instance_ = new Logger();
+    }
+    return *instance_;
+}
+
+Logger::Logger() : log_level_(LogLevel::INFO), initialized_(false) {
+    // Constructor - initialization happens in begin()
+}
+
+void Logger::begin(LogLevel level) {
+    log_level_ = level;
+    
+    // Initialize SPIFFS for log storage
+    if (!SPIFFS.begin(true)) {
+        Serial.println("[ERROR] SPIFFS Mount Failed");
+        return;
+    }
+    
+    // Create logs directory if it doesn't exist
+    if (!SPIFFS.exists("/logs")) {
+        Serial.println("[INFO] Creating logs directory");
+    }
+    
+    initialized_ = true;
+    
+    // Log startup
+    JsonDocument levelDoc;
+    levelDoc["level"] = levelToString(level);
+    logInfo("System", "Logger initialized", levelDoc.as<JsonObject>());
+}
+
+void Logger::log(LogLevel level, const String& component, const String& message, 
+                const JsonObject& data) {
+    if (!initialized_ || level < log_level_) {
+        return;
+    }
+    
+    unsigned long timestamp = millis();
+    String levelStr = levelToString(level);
+    
+    // Create structured log entry
+    JsonDocument doc;
+    doc["timestamp"] = timestamp;
+    doc["level"] = levelStr;
+    doc["component"] = component;
+    doc["message"] = message;
+    
+    // Add additional data if provided
+    if (!data.isNull()) {
+        doc["data"] = data;
+    }
+    
+    // Add system context
+    doc["heap_free"] = ESP.getFreeHeap();
+    doc["uptime_ms"] = timestamp;
+    
+    // Serialize to string
+    String logJson;
+    serializeJson(doc, logJson);
+    
+    // Output to serial
+    Serial.println(logJson);
+    
+    // Store to SPIFFS (with size limits)
+    if (level >= LogLevel::WARN) {
+        storeLogEntry(logJson);
+    }
+}
+
+void Logger::logError(const String& component, const String& message, const JsonObject& data) {
+    log(LogLevel::ERROR, component, message, data);
+}
+
+void Logger::logWarning(const String& component, const String& message, const JsonObject& data) {
+    log(LogLevel::WARN, component, message, data);
+}
+
+void Logger::logInfo(const String& component, const String& message, const JsonObject& data) {
+    log(LogLevel::INFO, component, message, data);
+}
+
+void Logger::logDebug(const String& component, const String& message, const JsonObject& data) {
+    log(LogLevel::DEBUG, component, message, data);
+}
+
+String Logger::levelToString(LogLevel level) {
+    switch (level) {
+        case LogLevel::ERROR: return "ERROR";
+        case LogLevel::WARN:  return "WARN";
+        case LogLevel::INFO:  return "INFO";
+        case LogLevel::DEBUG: return "DEBUG";
+        default: return "UNKNOWN";
+    }
+}
+
+void Logger::storeLogEntry(const String& logJson) {
+    // Simple rotation: keep last 100 entries
+    File logFile = SPIFFS.open("/logs/system.log", "a");
+    if (logFile) {
+        logFile.println(logJson);
+        logFile.close();
+        
+        // Check file size and rotate if needed
+        rotateLogIfNeeded();
+    }
+}
+
+void Logger::rotateLogIfNeeded() {
+    File logFile = SPIFFS.open("/logs/system.log", "r");
+    if (logFile && logFile.size() > MAX_LOG_SIZE_BYTES) {
+        logFile.close();
+        
+        // Simple rotation: delete old log
+        SPIFFS.remove("/logs/system.log.old");
+        SPIFFS.rename("/logs/system.log", "/logs/system.log.old");
+        
+        JsonDocument reasonDoc;
+        reasonDoc["reason"] = "size_limit";
+        logInfo("Logger", "Log rotated", reasonDoc.as<JsonObject>());
+    } else if (logFile) {
+        logFile.close();
+    }
+}
+
+String Logger::getRecentLogs(int count) {
+    JsonDocument doc;
+    JsonArray logs = doc.to<JsonArray>();
+    
+    File logFile = SPIFFS.open("/logs/system.log", "r");
+    if (!logFile) {
+        return "[]";
+    }
+    
+    // For simplicity, read all lines and take last 'count'
+    // In production, consider more efficient tail implementation
+    String line;
+    std::vector<String> lines;
+    
+    while (logFile.available()) {
+        line = logFile.readStringUntil('\n');
+        if (line.length() > 0) {
+            lines.push_back(line);
+        }
+    }
+    logFile.close();
+    
+    // Take last 'count' entries
+    int start = max(0, (int)lines.size() - count);
+    for (int i = start; i < lines.size(); i++) {
+        JsonDocument entryDoc;
+        if (deserializeJson(entryDoc, lines[i]) == DeserializationError::Ok) {
+            logs.add(entryDoc);
+        }
+    }
+    
+    String result;
+    serializeJson(doc, result);
+    return result;
+}
+
+void Logger::clearLogs() {
+    SPIFFS.remove("/logs/system.log");
+    SPIFFS.remove("/logs/system.log.old");
+    logInfo("Logger", "Logs cleared", JsonObject());
+}
+
+} // namespace Diagnostics

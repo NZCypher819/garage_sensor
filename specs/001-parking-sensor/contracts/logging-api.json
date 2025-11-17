@@ -1,0 +1,356 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "Logging and Diagnostics Interface",
+    "version": "1.0.0",
+    "description": "System logging, diagnostics, and health monitoring interface contracts"
+  },
+  "paths": {
+    "/api/v1/logs": {
+      "get": {
+        "summary": "Retrieve system logs",
+        "parameters": [
+          {
+            "name": "level",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": ["debug", "info", "warn", "error"]
+            },
+            "description": "Filter logs by minimum level"
+          },
+          {
+            "name": "since",
+            "in": "query", 
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "description": "Return logs since this timestamp"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000,
+              "default": 100
+            },
+            "description": "Maximum number of log entries to return"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Log entries",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LogResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/events": {
+      "get": {
+        "summary": "Retrieve parking events",
+        "parameters": [
+          {
+            "name": "since",
+            "in": "query",
+            "schema": {
+              "type": "string", 
+              "format": "date-time"
+            },
+            "description": "Return events since this timestamp"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 500,
+              "default": 50
+            },
+            "description": "Maximum number of events to return"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Parking events",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EventResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/health": {
+      "get": {
+        "summary": "Get comprehensive health status",
+        "responses": {
+          "200": {
+            "description": "System health information",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthStatus"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/metrics": {
+      "get": {
+        "summary": "Get system performance metrics",
+        "responses": {
+          "200": {
+            "description": "Performance and operational metrics",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SystemMetrics"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "LogEntry": {
+        "type": "object",
+        "required": ["timestamp", "level", "component", "message"],
+        "properties": {
+          "timestamp": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When the log entry was created"
+          },
+          "level": {
+            "type": "string",
+            "enum": ["debug", "info", "warn", "error"],
+            "description": "Log severity level"
+          },
+          "component": {
+            "type": "string",
+            "description": "System component that generated the log"
+          },
+          "message": {
+            "type": "string",
+            "description": "Log message content"
+          },
+          "metadata": {
+            "type": "object",
+            "description": "Additional structured data"
+          }
+        }
+      },
+      "LogResponse": {
+        "type": "object",
+        "required": ["logs", "total_count"],
+        "properties": {
+          "logs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LogEntry"
+            }
+          },
+          "total_count": {
+            "type": "integer",
+            "description": "Total number of log entries available"
+          },
+          "has_more": {
+            "type": "boolean",
+            "description": "Whether more logs are available"
+          }
+        }
+      },
+      "ParkingEvent": {
+        "type": "object",
+        "required": ["timestamp", "event_type", "response_time_ms"],
+        "properties": {
+          "timestamp": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When the parking event occurred"
+          },
+          "event_type": {
+            "type": "string",
+            "enum": ["beam_broken", "beam_restored"],
+            "description": "Type of parking event"
+          },
+          "sensor_id": {
+            "type": "string",
+            "description": "Identifier of sensor that detected event"
+          },
+          "response_time_ms": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Time from sensor trigger to LED response"
+          },
+          "signal_quality": {
+            "type": "number",
+            "minimum": 0.0,
+            "maximum": 1.0,
+            "description": "Signal quality indicator (0.0-1.0)"
+          }
+        }
+      },
+      "EventResponse": {
+        "type": "object",
+        "required": ["events", "total_count"],
+        "properties": {
+          "events": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ParkingEvent"
+            }
+          },
+          "total_count": {
+            "type": "integer",
+            "description": "Total number of events available"
+          },
+          "has_more": {
+            "type": "boolean", 
+            "description": "Whether more events are available"
+          }
+        }
+      },
+      "HealthStatus": {
+        "type": "object",
+        "required": ["overall_status", "components"],
+        "properties": {
+          "overall_status": {
+            "type": "string",
+            "enum": ["healthy", "degraded", "critical", "unknown"],
+            "description": "Overall system health"
+          },
+          "components": {
+            "type": "object",
+            "properties": {
+              "sensor": {
+                "type": "string",
+                "enum": ["healthy", "degraded", "failed"],
+                "description": "IR sensor health status"
+              },
+              "led": {
+                "type": "string", 
+                "enum": ["healthy", "degraded", "failed"],
+                "description": "LED controller health status"
+              },
+              "wifi": {
+                "type": "string",
+                "enum": ["healthy", "degraded", "failed"],
+                "description": "WiFi connectivity health"
+              },
+              "power": {
+                "type": "string",
+                "enum": ["healthy", "degraded", "failed"],
+                "description": "Power management health"
+              },
+              "storage": {
+                "type": "string",
+                "enum": ["healthy", "degraded", "failed"],
+                "description": "Local storage health"
+              }
+            }
+          },
+          "last_check": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When health check was last performed"
+          },
+          "issues": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "List of current health issues"
+          }
+        }
+      },
+      "SystemMetrics": {
+        "type": "object",
+        "required": ["uptime_seconds", "memory_usage", "performance"],
+        "properties": {
+          "uptime_seconds": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "System uptime in seconds"
+          },
+          "memory_usage": {
+            "type": "object",
+            "required": ["heap_used", "heap_free", "heap_total"],
+            "properties": {
+              "heap_used": {
+                "type": "integer",
+                "description": "Used heap memory in bytes"
+              },
+              "heap_free": {
+                "type": "integer",
+                "description": "Free heap memory in bytes"
+              },
+              "heap_total": {
+                "type": "integer",
+                "description": "Total heap memory in bytes"
+              }
+            }
+          },
+          "performance": {
+            "type": "object",
+            "properties": {
+              "avg_response_time_ms": {
+                "type": "number",
+                "description": "Average sensor response time"
+              },
+              "max_response_time_ms": {
+                "type": "integer",
+                "description": "Maximum response time in current session"
+              },
+              "events_processed": {
+                "type": "integer",
+                "description": "Total parking events processed"
+              },
+              "error_rate": {
+                "type": "number",
+                "minimum": 0.0,
+                "maximum": 1.0,
+                "description": "Error rate as percentage (0.0-1.0)"
+              }
+            }
+          },
+          "power": {
+            "type": "object",
+            "properties": {
+              "current_mode": {
+                "type": "string",
+                "enum": ["active", "light_sleep", "deep_sleep"]
+              },
+              "estimated_current_ma": {
+                "type": "number",
+                "description": "Estimated current consumption in milliamps"
+              },
+              "battery_voltage": {
+                "type": "number",
+                "description": "Battery voltage if battery powered"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

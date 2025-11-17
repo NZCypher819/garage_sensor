@@ -1,0 +1,141 @@
+#include "timer_utils.h"
+#include "../diagnostics/logger.h"
+#include <map>
+
+/**
+ * Timer Utilities Implementation
+ * Constitutional Requirements: <100ms response time validation
+ * 
+ * High-precision timing for performance monitoring and validation
+ */
+
+namespace Utils {
+
+// Timer class implementation
+Timer::Timer() : start_time_us_(0), running_(false) {}
+
+void Timer::start() {
+    start_time_us_ = micros();
+    running_ = true;
+}
+
+unsigned long Timer::getElapsedMicros() const {
+    if (!running_) {
+        return 0;
+    }
+    return micros() - start_time_us_;
+}
+
+unsigned long Timer::getElapsedMillis() const {
+    return getElapsedMicros() / 1000;
+}
+
+bool Timer::hasTimeout(unsigned long timeoutMs) const {
+    return getElapsedMillis() >= timeoutMs;
+}
+
+void Timer::reset() {
+    start_time_us_ = micros();
+    running_ = true;
+}
+
+// Performance Monitor implementation
+PerformanceMonitor* PerformanceMonitor::instance_ = nullptr;
+
+PerformanceMonitor& PerformanceMonitor::getInstance() {
+    if (!instance_) {
+        instance_ = new PerformanceMonitor();
+    }
+    return *instance_;
+}
+
+PerformanceMonitor::PerformanceMonitor() {
+    // Initialize with empty statistics
+}
+
+void PerformanceMonitor::recordOperation(const String& operation, unsigned long durationUs) {
+    auto& stats = stats_[operation];
+    
+    stats.count++;
+    stats.totalTimeUs += durationUs;
+    
+    if (stats.count == 1) {
+        stats.minTimeUs = durationUs;
+        stats.maxTimeUs = durationUs;
+    } else {
+        if (durationUs < stats.minTimeUs) stats.minTimeUs = durationUs;
+        if (durationUs > stats.maxTimeUs) stats.maxTimeUs = durationUs;
+    }
+    
+    // Check for constitutional violation
+    if (durationUs > MAX_RESPONSE_TIME_US) {
+        stats.violationsCount++;
+        StaticJsonDocument<512> violationDoc;
+        violationDoc["operation"] = operation.c_str();
+        violationDoc["duration_us"] = (int)durationUs;
+        violationDoc["limit_us"] = (int)MAX_RESPONSE_TIME_US;
+        LOG_WARN("PerformanceMonitor", "Response time violation", violationDoc.as<JsonObject>());
+    }
+}
+
+bool PerformanceMonitor::validateResponseTime(const String& operation, unsigned long durationUs) {
+    recordOperation(operation, durationUs);
+    return durationUs <= MAX_RESPONSE_TIME_US;
+}
+
+String PerformanceMonitor::getPerformanceReport() const {
+    JsonDocument doc;
+    JsonObject report = doc.to<JsonObject>();
+    
+    for (const auto& pair : stats_) {
+        JsonObject opStats = report[pair.first].to<JsonObject>();
+        const OperationStats& stats = pair.second;
+        
+        opStats["count"] = stats.count;
+        opStats["avg_time_us"] = stats.totalTimeUs / stats.count;
+        opStats["min_time_us"] = stats.minTimeUs;
+        opStats["max_time_us"] = stats.maxTimeUs;
+        opStats["violations"] = stats.violationsCount;
+        opStats["compliance_rate"] = 1.0 - ((double)stats.violationsCount / stats.count);
+    }
+    
+    String result;
+    serializeJsonPretty(doc, result);
+    return result;
+}
+
+void PerformanceMonitor::clearMetrics() {
+    stats_.clear();
+    LOG_INFO("PerformanceMonitor", "Performance metrics cleared");
+}
+
+// Utility functions
+unsigned long micros64() {
+    // ESP32 micros() is already 64-bit, but this provides compatibility
+    return micros();
+}
+
+void delayMicroseconds(unsigned int us) {
+    ::delayMicroseconds(us);
+}
+
+void preciseDelay(unsigned long us) {
+    unsigned long start = micros();
+    while (micros() - start < us) {
+        // Busy wait for precise timing
+        yield(); // Allow other tasks to run
+    }
+}
+
+// Scoped Timer implementation
+ScopedTimer::ScopedTimer(const String& operationName) 
+    : operation_name_(operationName) {
+    timer_.start();
+}
+
+ScopedTimer::~ScopedTimer() {
+    unsigned long duration = timer_.getElapsedMicros();
+    PerformanceMonitor::getInstance().recordOperation(operation_name_, duration);
+}
+
+} // namespace Utils

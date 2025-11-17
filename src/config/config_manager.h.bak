@@ -1,0 +1,55 @@
+#pragma once
+
+#include <Arduino.h>
+#include <ArduinoJson.h>
+
+/**
+ * Configuration Manager
+ * Constitutional Principle III: Specification-Driven Development
+ * 
+ * Manages application configuration with SPIFFS persistence
+ * Provides type-safe access to configuration values
+ */
+
+namespace Config {
+
+class ConfigManager {
+public:
+    static ConfigManager& getInstance();
+    
+    bool begin();
+    bool loadConfig();
+    bool saveConfig();
+    
+    // Configuration access methods
+    String getString(const String& key, const String& defaultValue = "");
+    int getInt(const String& key, int defaultValue = 0);
+    float getFloat(const String& key, float defaultValue = 0.0f);
+    bool getBool(const String& key, bool defaultValue = false);
+    
+    // Configuration setter methods
+    void setString(const String& key, const String& value);
+    void setInt(const String& key, int value);
+    void setFloat(const String& key, float value);
+    void setBool(const String& key, bool value);
+    
+    // Factory reset
+    void resetToDefaults();
+    
+    // Get complete configuration as JSON string
+    String getConfigJson() const;
+    
+private:
+    ConfigManager();
+    static ConfigManager* instance_;
+    
+    JsonDocument config_;
+    bool initialized_;
+    
+    static const char* CONFIG_FILE_PATH;
+    
+    void setDefaults();
+    bool validateConfig();
+};
+
+} // namespace Config

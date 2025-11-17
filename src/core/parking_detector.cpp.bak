@@ -1,0 +1,466 @@
+#include "parking_detector.h"
+
+/**
+ * Parking Detection Controller Implementation
+ * Constitutional Principle I: Reliability-First
+ * 
+ * Core logic for User Story 1: Real-time parking detection with <100ms response
+ * Links E3JK sensor beam breaks to immediate LED indication
+ */
+
+namespace Core {
+
+ParkingDetector::ParkingDetector(Sensors::E3JKSensor& sensor, Actuators::ParkingLEDController& led_controller)
+    : sensor_(sensor), led_controller_(led_controller), current_state_(ParkingState::EMPTY),
+      previous_state_(ParkingState::ERROR), enabled_(false), last_state_change_us_(0),
+      last_update_us_(0) {
+    
+    resetStats();
+    event_history_.reserve(MAX_EVENT_HISTORY);
+    
+    LOG_INFO("ParkingDetector", "Controller initialized");
+}
+
+bool ParkingDetector::begin() {
+    TIMED_OPERATION("ParkingDetector::begin");
+    
+    // Register for sensor state change events
+    sensor_.onStateChange([this](Sensors::BeamState old_state, Sensors::BeamState new_state, unsigned long timestamp_us) {
+        this->handleSensorStateChange(old_state, new_state, timestamp_us);
+    });
+    
+    // Initialize based on current sensor state
+    Sensors::SensorReading initial_reading = sensor_.readSensor();
+    if (initial_reading.valid) {
+        current_state_ = (initial_reading.state == Sensors::BeamState::BLOCKED) ? 
+                        ParkingState::OCCUPIED : ParkingState::EMPTY;
+    } else {
+        current_state_ = ParkingState::ERROR;
+        LOG_WARN("ParkingDetector", "Invalid initial sensor reading");
+    }
+    
+    last_state_change_us_ = micros();
+    last_update_us_ = micros();
+    enabled_ = true;
+    
+    // Sync LED with initial state
+    bool led_should_be_on = (current_state_ == ParkingState::OCCUPIED);
+    led_controller_.showParkingDetected(led_should_be_on);
+    
+    // Perform initial system validation
+    if (!validateComponentHealth()) {
+        LOG_ERROR("ParkingDetector", "Component health check failed during initialization");
+        current_state_ = ParkingState::ERROR;
+    }
+    
+    // Record initialization event
+    recordEvent(EventType::VEHICLE_ENTERED, last_state_change_us_, "System initialized");
+    
+    StaticJsonDocument<256> initDoc;
+    initDoc["initial_state"] = (int)current_state_;
+    initDoc["sensor_state"] = (int)initial_reading.state;
+    initDoc["led_on"] = led_should_be_on;
+    initDoc["enabled"] = enabled_;
+    LOG_INFO("ParkingDetector", "System started", initDoc.as<JsonObject>());
+    
+    return (current_state_ != ParkingState::ERROR);
+}
+
+void ParkingDetector::update() {
+    if (!enabled_) {
+        return;
+    }
+    
+    unsigned long current_time = micros();
+    last_update_us_ = current_time;
+    
+    // Perform periodic health checks
+    if (current_time - last_state_change_us_ > HEALTH_CHECK_INTERVAL_US) {
+        performHealthCheck();
+        last_state_change_us_ = current_time; // Reset health check timer
+    }
+    
+    // Update component controllers
+    led_controller_.update();
+}
+
+void ParkingDetector::resetStats() {
+    stats_ = ParkingStats();
+    event_history_.clear();
+    LOG_INFO("ParkingDetector", "Statistics reset");
+}
+
+void ParkingDetector::onParkingEvent(EventCallback callback) {
+    event_callbacks_.push_back(callback);
+}
+
+void ParkingDetector::onStateChange(StateCallback callback) {
+    state_callbacks_.push_back(callback);
+}
+
+void ParkingDetector::forceState(ParkingState state) {
+    ParkingState old_state = current_state_;
+    current_state_ = state;
+    
+    // Update LED to match forced state
+    bool led_on = (state == ParkingState::OCCUPIED);
+    led_controller_.showParkingDetected(led_on);
+    
+    notifyStateCallbacks(old_state, state);
+    
+    StaticJsonDocument<128> forceDoc;
+    forceDoc["forced_state"] = (int)state;
+    forceDoc["led_on"] = led_on;
+    LOG_INFO("ParkingDetector", "State forced for testing", forceDoc.as<JsonObject>());
+}
+
+void ParkingDetector::setEnabled(bool enabled) {
+    bool was_enabled = enabled_;
+    enabled_ = enabled;
+    
+    if (!enabled && was_enabled) {
+        // Disable - turn off LED and set to error state
+        led_controller_.stop();
+        current_state_ = ParkingState::ERROR;
+        recordEvent(EventType::SENSOR_ERROR, micros(), "Detection disabled");
+    } else if (enabled && !was_enabled) {
+        // Re-enable - reinitialize system
+        begin();
+    }
+    
+    StaticJsonDocument<128> enabledDoc;
+    enabledDoc["enabled"] = enabled;
+    enabledDoc["was_enabled"] = was_enabled;
+    LOG_INFO("ParkingDetector", "Detection enable state changed", enabledDoc.as<JsonObject>());
+}
+
+bool ParkingDetector::performSelfTest() {
+    TIMED_OPERATION("ParkingDetector::performSelfTest");
+    
+    LOG_INFO("ParkingDetector", "Starting system self-test");
+    
+    // Test sensor health
+    if (!sensor_.performSelfTest()) {
+        LOG_ERROR("ParkingDetector", "Sensor self-test failed");
+        return false;
+    }
+    
+    // Test LED controller
+    if (!led_controller_.performSelfTest()) {
+        LOG_ERROR("ParkingDetector", "LED controller self-test failed");
+        return false;
+    }
+    
+    // Test integration - force state changes and verify response
+    ParkingState original_state = current_state_;
+    
+    // Test parking detection
+    forceState(ParkingState::OCCUPIED);
+    delay(50);
+    if (!led_controller_.isOn()) {
+        LOG_ERROR("ParkingDetector", "Integration test failed - LED not responding to parking state");
+        forceState(original_state);
+        return false;
+    }
+    
+    // Test empty state
+    forceState(ParkingState::EMPTY);
+    delay(50);
+    if (led_controller_.isOn()) {
+        LOG_ERROR("ParkingDetector", "Integration test failed - LED not responding to empty state");
+        forceState(original_state);
+        return false;
+    }
+    
+    // Restore original state
+    forceState(original_state);
+    
+    LOG_INFO("ParkingDetector", "Self-test completed successfully");
+    return true;
+}
+
+String ParkingDetector::getDiagnosticData() const {
+    StaticJsonDocument<1024> diagnosticDoc;
+    
+    diagnosticDoc["system"]["current_state"] = (int)current_state_;
+    diagnosticDoc["system"]["previous_state"] = (int)previous_state_;
+    diagnosticDoc["system"]["enabled"] = enabled_;
+    diagnosticDoc["system"]["last_state_change_us"] = last_state_change_us_;
+    diagnosticDoc["system"]["last_update_us"] = last_update_us_;
+    diagnosticDoc["system"]["health"] = (int)getSystemHealth();
+    
+    diagnosticDoc["stats"]["total_events"] = stats_.total_events;
+    diagnosticDoc["stats"]["vehicle_entries"] = stats_.vehicle_entries;
+    diagnosticDoc["stats"]["vehicle_exits"] = stats_.vehicle_exits;
+    diagnosticDoc["stats"]["response_violations"] = stats_.response_time_violations;
+    diagnosticDoc["stats"]["sensor_errors"] = stats_.sensor_errors;
+    diagnosticDoc["stats"]["led_errors"] = stats_.led_errors;
+    diagnosticDoc["stats"]["avg_response_us"] = stats_.average_response_time_us;
+    diagnosticDoc["stats"]["max_response_us"] = stats_.max_response_time_us;
+    diagnosticDoc["stats"]["success_rate"] = stats_.success_rate;
+    
+    if (!event_history_.empty()) {
+        const ParkingEvent& last_event = event_history_.back();
+        diagnosticDoc["last_event"]["type"] = (int)last_event.type;
+        diagnosticDoc["last_event"]["timestamp_us"] = last_event.timestamp_us;
+        diagnosticDoc["last_event"]["processing_time_us"] = last_event.processing_time_us;
+        diagnosticDoc["last_event"]["response_time_met"] = last_event.response_time_met;
+        diagnosticDoc["last_event"]["details"] = last_event.details;
+    }
+    
+    // Component health
+    diagnosticDoc["components"]["sensor_health"] = (int)sensor_.getHealth();
+    diagnosticDoc["components"]["led_health"] = (int)led_controller_.getHealth();
+    
+    String result;
+    serializeJson(diagnosticDoc, result);
+    return result;
+}
+
+Diagnostics::ComponentStatus ParkingDetector::getSystemHealth() const {
+    if (!enabled_) {
+        return Diagnostics::ComponentStatus::OFFLINE;
+    }
+    
+    Sensors::SensorHealth sensor_health = sensor_.getHealth();
+    Actuators::LEDHealth led_health = led_controller_.getHealth();
+    
+    // System is only as healthy as its weakest component
+    if (sensor_health == Sensors::SensorHealth::ERROR || led_health == Actuators::LEDHealth::ERROR ||
+        current_state_ == ParkingState::ERROR || stats_.success_rate < MIN_SUCCESS_RATE) {
+        return Diagnostics::ComponentStatus::ERROR;
+    }
+    
+    if (sensor_health == Sensors::SensorHealth::WARNING || led_health == Actuators::LEDHealth::WARNING ||
+        stats_.response_time_violations > (stats_.total_events * 0.05f)) { // >5% violations
+        return Diagnostics::ComponentStatus::WARNING;
+    }
+    
+    if (sensor_health == Sensors::SensorHealth::OFFLINE || led_health == Actuators::LEDHealth::OFFLINE) {
+        return Diagnostics::ComponentStatus::OFFLINE;
+    }
+    
+    return Diagnostics::ComponentStatus::HEALTHY;
+}
+
+void ParkingDetector::handleSensorStateChange(Sensors::BeamState old_state, Sensors::BeamState new_state, unsigned long timestamp_us) {
+    if (!enabled_) {
+        return;
+    }
+    
+    TIMED_OPERATION("ParkingDetector::handleSensorStateChange");
+    
+    StaticJsonDocument<256> stateChangeDoc;
+    stateChangeDoc["old_beam_state"] = (int)old_state;
+    stateChangeDoc["new_beam_state"] = (int)new_state;
+    stateChangeDoc["timestamp_us"] = timestamp_us;
+    LOG_INFO("ParkingDetector", "Sensor state changed", stateChangeDoc.as<JsonObject>());
+    
+    // Process the beam state change immediately
+    processBeamStateChange(new_state, timestamp_us);
+}
+
+void ParkingDetector::processBeamStateChange(Sensors::BeamState beam_state, unsigned long timestamp_us) {
+    unsigned long processing_start = micros();
+    
+    // Determine new parking state based on beam state
+    ParkingState new_parking_state;
+    EventType event_type;
+    
+    switch (beam_state) {
+        case Sensors::BeamState::BLOCKED:
+            new_parking_state = ParkingState::OCCUPIED;
+            event_type = EventType::VEHICLE_ENTERED;
+            break;
+            
+        case Sensors::BeamState::CLEAR:
+            new_parking_state = ParkingState::EMPTY;
+            event_type = EventType::VEHICLE_EXITED;
+            break;
+            
+        case Sensors::BeamState::UNKNOWN:
+        default:
+            new_parking_state = ParkingState::ERROR;
+            event_type = EventType::SENSOR_ERROR;
+            break;
+    }
+    
+    // Apply state debouncing to prevent rapid oscillation
+    if (timestamp_us - last_state_change_us_ < STATE_DEBOUNCE_TIME_US && 
+        new_parking_state != ParkingState::ERROR) {
+        // State change too rapid - ignore
+        return;
+    }
+    
+    // Update parking state if changed
+    if (new_parking_state != current_state_) {
+        previous_state_ = current_state_;
+        current_state_ = new_parking_state;
+        last_state_change_us_ = timestamp_us;
+        
+        // Update LED state immediately for visual feedback
+        bool parking_detected = (new_parking_state == ParkingState::OCCUPIED);
+        updateLEDState(parking_detected, timestamp_us);
+        
+        // Record the event
+        recordEvent(event_type, timestamp_us);
+        
+        // Notify state change callbacks
+        notifyStateCallbacks(previous_state_, current_state_);
+        
+        StaticJsonDocument<256> parkingStateDoc;
+        parkingStateDoc["previous_state"] = (int)previous_state_;
+        parkingStateDoc["new_state"] = (int)current_state_;
+        parkingStateDoc["parking_detected"] = parking_detected;
+        parkingStateDoc["processing_time_us"] = micros() - processing_start;
+        LOG_INFO("ParkingDetector", "Parking state changed", parkingStateDoc.as<JsonObject>());
+    }
+}
+
+void ParkingDetector::updateLEDState(bool parking_detected, unsigned long event_time_us) {
+    unsigned long led_update_start = micros();
+    
+    bool success = led_controller_.showParkingDetected(parking_detected);
+    
+    if (!success) {
+        // LED update failed
+        recordEvent(EventType::LED_ERROR, event_time_us, "LED state update failed");
+        current_state_ = ParkingState::ERROR;
+        
+        REPORT_ERROR(Core::ErrorCode::LED_FAILURE, Core::ErrorSeverity::ERROR,
+                    "ParkingDetector", "LED state update failed");
+    } else {
+        // Check response time compliance
+        unsigned long led_response_time = micros() - led_update_start;
+        if (led_response_time > MAX_PROCESSING_TIME_US) {
+            stats_.response_time_violations++;
+            LOG_WARN("ParkingDetector", "LED response time violation");
+        }
+    }
+}
+
+void ParkingDetector::recordEvent(EventType type, unsigned long timestamp_us, const String& details) {
+    ParkingEvent event;
+    event.type = type;
+    event.timestamp_us = timestamp_us;
+    event.processing_time_us = micros() - timestamp_us;
+    event.response_time_met = (event.processing_time_us <= MAX_PROCESSING_TIME_US);
+    event.beam_state = sensor_.getCurrentState();
+    event.led_state = led_controller_.isOn() ? Actuators::LEDState::ON : Actuators::LEDState::OFF;
+    event.details = details;
+    
+    // Store in history (with circular buffer behavior)
+    if (event_history_.size() >= MAX_EVENT_HISTORY) {
+        event_history_.erase(event_history_.begin());
+    }
+    event_history_.push_back(event);
+    
+    // Update last event
+    last_event_ = event;
+    
+    // Update statistics
+    updateStatistics(event);
+    
+    // Notify event callbacks
+    notifyEventCallbacks(event);
+}
+
+void ParkingDetector::notifyEventCallbacks(const ParkingEvent& event) {
+    for (const auto& callback : event_callbacks_) {
+        if (callback) {
+            callback(event);
+        }
+    }
+}
+
+void ParkingDetector::notifyStateCallbacks(ParkingState old_state, ParkingState new_state) {
+    for (const auto& callback : state_callbacks_) {
+        if (callback) {
+            callback(old_state, new_state);
+        }
+    }
+}
+
+void ParkingDetector::updateStatistics(const ParkingEvent& event) {
+    stats_.total_events++;
+    
+    switch (event.type) {
+        case EventType::VEHICLE_ENTERED:
+            stats_.vehicle_entries++;
+            break;
+        case EventType::VEHICLE_EXITED:
+            stats_.vehicle_exits++;
+            break;
+        case EventType::SENSOR_ERROR:
+            stats_.sensor_errors++;
+            break;
+        case EventType::LED_ERROR:
+            stats_.led_errors++;
+            break;
+        default:
+            break;
+    }
+    
+    if (!event.response_time_met) {
+        stats_.response_time_violations++;
+    }
+    
+    // Update response time statistics
+    if (event.processing_time_us > stats_.max_response_time_us) {
+        stats_.max_response_time_us = event.processing_time_us;
+    }
+    
+    // Calculate rolling average response time
+    if (stats_.total_events > 0) {
+        stats_.average_response_time_us = ((stats_.average_response_time_us * (stats_.total_events - 1)) + 
+                                         event.processing_time_us) / stats_.total_events;
+    }
+    
+    // Calculate success rate
+    unsigned long successful_events = stats_.total_events - stats_.response_time_violations - 
+                                    stats_.sensor_errors - stats_.led_errors;
+    stats_.success_rate = (stats_.total_events > 0) ? 
+                         ((float)successful_events / stats_.total_events * 100.0f) : 100.0f;
+}
+
+void ParkingDetector::performHealthCheck() {
+    if (!validateComponentHealth()) {
+        if (current_state_ != ParkingState::ERROR) {
+            previous_state_ = current_state_;
+            current_state_ = ParkingState::ERROR;
+            recordEvent(EventType::SENSOR_ERROR, micros(), "Health check failed");
+            notifyStateCallbacks(previous_state_, current_state_);
+        }
+    }
+    
+    // Report health to system health monitor
+    Diagnostics::ComponentStatus system_health = getSystemHealth();
+    Diagnostics::HealthMonitor::getInstance().reportComponentStatus(
+        "ParkingDetector", system_health, getDiagnosticData());
+}
+
+bool ParkingDetector::validateComponentHealth() {
+    // Check sensor health
+    Sensors::SensorHealth sensor_health = sensor_.getHealth();
+    if (sensor_health == Sensors::SensorHealth::ERROR || sensor_health == Sensors::SensorHealth::OFFLINE) {
+        LOG_ERROR("ParkingDetector", "Sensor health check failed");
+        return false;
+    }
+    
+    // Check LED health
+    Actuators::LEDHealth led_health = led_controller_.getHealth();
+    if (led_health == Actuators::LEDHealth::ERROR || led_health == Actuators::LEDHealth::OFFLINE) {
+        LOG_ERROR("ParkingDetector", "LED health check failed");
+        return false;
+    }
+    
+    // Check system performance metrics
+    if (stats_.success_rate < MIN_SUCCESS_RATE) {
+        LOG_WARN("ParkingDetector", "System success rate below threshold");
+        return false;
+    }
+    
+    return true;
+}
+
+} // namespace Core

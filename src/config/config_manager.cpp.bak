@@ -1,0 +1,241 @@
+#include "config_manager.h"
+#include "../diagnostics/logger.h"
+#include <SPIFFS.h>
+
+/**
+ * Configuration Manager Implementation
+ * Constitutional Principle III: Specification-Driven Development
+ * 
+ * Manages application configuration with validation and persistence
+ */
+
+namespace Config {
+
+ConfigManager* ConfigManager::instance_ = nullptr;
+const char* ConfigManager::CONFIG_FILE_PATH = "/config.json";
+
+ConfigManager& ConfigManager::getInstance() {
+    if (!instance_) {
+        instance_ = new ConfigManager();
+    }
+    return *instance_;
+}
+
+ConfigManager::ConfigManager() : initialized_(false) {
+    // Constructor - initialization happens in begin()
+}
+
+bool ConfigManager::begin() {
+    if (!SPIFFS.begin(true)) {
+        LOG_ERROR("ConfigManager", "SPIFFS mount failed");
+        return false;
+    }
+    
+    // Load configuration or create defaults
+    if (!loadConfig()) {
+        LOG_WARN("ConfigManager", "Failed to load config, using defaults");
+        setDefaults();
+        saveConfig();
+    }
+    
+    initialized_ = true;
+    LOG_INFO("ConfigManager", "Configuration manager initialized");
+    return true;
+}
+
+bool ConfigManager::loadConfig() {
+    if (!SPIFFS.exists(CONFIG_FILE_PATH)) {
+        LOG_INFO("ConfigManager", "Config file does not exist, will create defaults");
+        return false;
+    }
+    
+    File configFile = SPIFFS.open(CONFIG_FILE_PATH, "r");
+    if (!configFile) {
+        LOG_ERROR("ConfigManager", "Failed to open config file for reading");
+        return false;
+    }
+    
+    DeserializationError error = deserializeJson(config_, configFile);
+    configFile.close();
+    
+    if (error) {
+        JsonDocument errorDoc;
+        errorDoc["error"] = error.c_str();
+        LOG_ERROR("ConfigManager", "JSON deserialization failed", errorDoc.as<JsonObject>());
+        return false;
+    }
+    
+    if (!validateConfig()) {
+        LOG_WARN("ConfigManager", "Config validation failed, resetting to defaults");
+        setDefaults();
+        return false;
+    }
+    
+    LOG_INFO("ConfigManager", "Configuration loaded successfully");
+    return true;
+}
+
+bool ConfigManager::saveConfig() {
+    File configFile = SPIFFS.open(CONFIG_FILE_PATH, "w");
+    if (!configFile) {
+        LOG_ERROR("ConfigManager", "Failed to open config file for writing");
+        return false;
+    }
+    
+    if (serializeJson(config_, configFile) == 0) {
+        LOG_ERROR("ConfigManager", "Failed to write config to file");
+        configFile.close();
+        return false;
+    }
+    
+    configFile.close();
+    LOG_INFO("ConfigManager", "Configuration saved successfully");
+    return true;
+}
+
+void ConfigManager::setDefaults() {
+    config_.clear();
+    
+    // Device configuration
+    config_["device"]["name"] = "GarageSensor";
+    config_["device"]["version"] = "1.0.0";
+    
+    // Sensor configuration
+    config_["sensor"]["gpio_pin"] = 2;
+    config_["sensor"]["read_interval_ms"] = 10;
+    config_["sensor"]["debounce_ms"] = 50;
+    config_["sensor"]["validation_samples"] = 3;
+    
+    // LED configuration
+    config_["leds"]["parking"]["gpio_pin"] = 8;
+    config_["leds"]["parking"]["pwm_channel"] = 0;
+    config_["leds"]["parking"]["brightness"] = 255;
+    config_["leds"]["status"]["gpio_pin"] = 9;
+    config_["leds"]["status"]["pwm_channel"] = 1;
+    config_["leds"]["status"]["idle_brightness"] = 64; // 25% of 255
+    config_["leds"]["status"]["blink_duration_ms"] = 200;
+    
+    // Power management
+    config_["power"]["sleep_timeout_ms"] = 30000;
+    config_["power"]["deep_sleep_threshold_ms"] = 300000; // 5 minutes
+    config_["power"]["wake_on_sensor"] = true;
+    
+    // WiFi configuration (defaults, should be configured by user)
+    config_["wifi"]["ssid"] = "";
+    config_["wifi"]["password"] = "";
+    config_["wifi"]["connect_timeout_ms"] = 30000;
+    config_["wifi"]["retry_attempts"] = 3;
+    
+    // OTA configuration
+    config_["ota"]["enabled"] = true;
+    config_["ota"]["github_repo"] = "garage-sensorv2";
+    config_["ota"]["check_interval_hours"] = 24;
+    config_["ota"]["auto_update"] = false;
+    
+    // Logging configuration
+    config_["logging"]["level"] = "INFO";
+    config_["logging"]["serial_output"] = true;
+    config_["logging"]["spiffs_storage"] = true;
+    
+    LOG_INFO("ConfigManager", "Default configuration set");
+}
+
+bool ConfigManager::validateConfig() {
+    // Basic validation of required configuration sections
+    if (!config_.containsKey("device") || !config_.containsKey("sensor") || 
+        !config_.containsKey("leds") || !config_.containsKey("power")) {
+        return false;
+    }
+    
+    // Validate GPIO pin ranges for ESP32-S3-NANO
+    int sensorPin = config_["sensor"]["gpio_pin"];
+    int parkingPin = config_["leds"]["parking"]["gpio_pin"];
+    int statusPin = config_["leds"]["status"]["gpio_pin"];
+    
+    if (sensorPin < 0 || sensorPin > 21 || 
+        parkingPin < 0 || parkingPin > 21 || 
+        statusPin < 0 || statusPin > 21) {
+        LOG_ERROR("ConfigManager", "Invalid GPIO pin configuration");
+        return false;
+    }
+    
+    // Validate pins are unique
+    if (sensorPin == parkingPin || sensorPin == statusPin || parkingPin == statusPin) {
+        LOG_ERROR("ConfigManager", "GPIO pins must be unique");
+        return false;
+    }
+    
+    return true;
+}
+
+String ConfigManager::getString(const String& key, const String& defaultValue) {
+    JsonVariant value = config_;
+    
+    // Navigate nested keys (e.g., "device.name")
+    int start = 0;
+    int end = key.indexOf('.');
+    
+    while (end != -1) {
+        String part = key.substring(start, end);
+        if (!value.containsKey(part)) {
+            return defaultValue;
+        }
+        value = value[part];
+        start = end + 1;
+        end = key.indexOf('.', start);
+    }
+    
+    String lastPart = key.substring(start);
+    if (!value.containsKey(lastPart)) {
+        return defaultValue;
+    }
+    
+    return value[lastPart].as<String>();
+}
+
+int ConfigManager::getInt(const String& key, int defaultValue) {
+    String strValue = getString(key, String(defaultValue));
+    return strValue.toInt();
+}
+
+float ConfigManager::getFloat(const String& key, float defaultValue) {
+    String strValue = getString(key, String(defaultValue));
+    return strValue.toFloat();
+}
+
+bool ConfigManager::getBool(const String& key, bool defaultValue) {
+    String strValue = getString(key, defaultValue ? "true" : "false");
+    return strValue.equalsIgnoreCase("true");
+}
+
+void ConfigManager::setString(const String& key, const String& value) {
+    // For simplicity, this implementation assumes single-level keys
+    // Production version should support nested keys
+    config_[key] = value;
+}
+
+void ConfigManager::setInt(const String& key, int value) {
+    config_[key] = value;
+}
+
+void ConfigManager::setFloat(const String& key, float value) {
+    config_[key] = value;
+}
+
+void ConfigManager::setBool(const String& key, bool value) {
+    config_[key] = value;
+}
+
+void ConfigManager::resetToDefaults() {
+    setDefaults();
+    saveConfig();
+    LOG_INFO("ConfigManager", "Configuration reset to defaults");
+}
+
+String ConfigManager::getConfigJson() const {
+    String result;
+    serializeJsonPretty(config_, result);
+    return result;
+}
+
+} // namespace Config

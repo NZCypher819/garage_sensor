@@ -1,0 +1,214 @@
+#pragma once
+
+#include <Arduino.h>
+#include <ArduinoJson.h>
+#include <functional>
+#include "../sensors/e3jk_sensor.h"
+#include "../actuators/parking_led_controller.h"
+#include "../diagnostics/logger.h"
+#include "../utils/timer_utils.h"
+#include "../diagnostics/error_handler.h"
+#include "../diagnostics/health_monitor.h"
+
+/**
+ * Parking Event Detection System
+ * Constitutional Principle I: Reliability-First
+ * 
+ * Core logic linking E3JK sensor to parking LED with <100ms response time
+ * Implements User Story 1: "When vehicle breaks beam, LED turns on immediately"
+ * Provides comprehensive event validation, timing measurement, and diagnostics
+ */
+
+namespace Core {
+
+enum class ParkingState {
+    EMPTY = 0,           // No vehicle detected
+    OCCUPIED = 1,        // Vehicle detected in parking position
+    TRANSITION = 2,      // State transition in progress
+    ERROR = 3            // Error state - sensor or LED failure
+};
+
+enum class EventType {
+    VEHICLE_ENTERED = 0, // Vehicle entered parking position
+    VEHICLE_EXITED = 1,  // Vehicle left parking position
+    SENSOR_ERROR = 2,    // Sensor fault detected
+    LED_ERROR = 3,       // LED fault detected
+    TIMEOUT = 4          // Event processing timeout
+};
+
+struct ParkingEvent {
+    EventType type;
+    unsigned long timestamp_us;
+    unsigned long processing_time_us;
+    bool response_time_met;
+    Sensors::BeamState beam_state;
+    Actuators::LEDState led_state;
+    String details;
+    
+    ParkingEvent() : type(EventType::SENSOR_ERROR), timestamp_us(0), processing_time_us(0),
+                    response_time_met(false), beam_state(Sensors::BeamState::UNKNOWN),
+                    led_state(Actuators::LEDState::OFF) {}
+};
+
+struct ParkingStats {
+    unsigned long total_events;
+    unsigned long vehicle_entries;
+    unsigned long vehicle_exits;
+    unsigned long response_time_violations;
+    unsigned long sensor_errors;
+    unsigned long led_errors;
+    unsigned long average_response_time_us;
+    unsigned long max_response_time_us;
+    float success_rate;
+    
+    ParkingStats() : total_events(0), vehicle_entries(0), vehicle_exits(0),
+                    response_time_violations(0), sensor_errors(0), led_errors(0),
+                    average_response_time_us(0), max_response_time_us(0), success_rate(100.0f) {}
+};
+
+/**
+ * Parking Detection Controller
+ * 
+ * Manages the complete parking detection workflow:
+ * - Sensor monitoring and validation
+ * - LED response control
+ * - Event timing measurement
+ * - Health monitoring and error recovery
+ */
+class ParkingDetector {
+public:
+    // Callback types for event notifications
+    using EventCallback = std::function<void(const ParkingEvent& event)>;
+    using StateCallback = std::function<void(ParkingState old_state, ParkingState new_state)>;
+    
+    /**
+     * Constructor
+     * @param sensor Reference to E3JK sensor instance
+     * @param led_controller Reference to parking LED controller
+     */
+    ParkingDetector(Sensors::E3JKSensor& sensor, Actuators::ParkingLEDController& led_controller);
+    
+    /**
+     * Initialize parking detection system
+     * @return true if initialization successful
+     */
+    bool begin();
+    
+    /**
+     * Update parking detection logic
+     * Called from main loop for continuous monitoring
+     */
+    void update();
+    
+    /**
+     * Get current parking state
+     * @return Current parking state
+     */
+    ParkingState getCurrentState() const { return current_state_; }
+    
+    /**
+     * Get last parking event
+     * @return Most recent parking event
+     */
+    ParkingEvent getLastEvent() const { return last_event_; }
+    
+    /**
+     * Get parking detection statistics
+     * @return Performance and reliability statistics
+     */
+    ParkingStats getStats() const { return stats_; }
+    
+    /**
+     * Reset statistics counters
+     */
+    void resetStats();
+    
+    /**
+     * Register callback for parking events
+     * @param callback Function to call on parking events
+     */
+    void onParkingEvent(EventCallback callback);
+    
+    /**
+     * Register callback for state changes
+     * @param callback Function to call on state changes
+     */
+    void onStateChange(StateCallback callback);
+    
+    /**
+     * Force parking state for testing
+     * @param state Target parking state
+     */
+    void forceState(ParkingState state);
+    
+    /**
+     * Enable/disable automatic parking detection
+     * @param enabled true to enable detection
+     */
+    void setEnabled(bool enabled);
+    
+    /**
+     * Check if parking detection is enabled
+     * @return true if detection is active
+     */
+    bool isEnabled() const { return enabled_; }
+    
+    /**
+     * Perform system self-test
+     * @return true if self-test passed
+     */
+    bool performSelfTest();
+    
+    /**
+     * Get diagnostic information
+     * @return JSON string with diagnostic data
+     */
+    String getDiagnosticData() const;
+    
+    /**
+     * Get system health status
+     * @return Combined health status of sensor and LED
+     */
+    Diagnostics::ComponentStatus getSystemHealth() const;
+
+private:
+    // Component references
+    Sensors::E3JKSensor& sensor_;
+    Actuators::ParkingLEDController& led_controller_;
+    
+    // State management
+    ParkingState current_state_;
+    ParkingState previous_state_;
+    bool enabled_;
+    unsigned long last_state_change_us_;
+    unsigned long last_update_us_;
+    
+    // Event tracking
+    ParkingEvent last_event_;
+    ParkingStats stats_;
+    std::vector<ParkingEvent> event_history_;
+    
+    // Callbacks
+    std::vector<EventCallback> event_callbacks_;
+    std::vector<StateCallback> state_callbacks_;
+    
+    // Internal methods
+    void handleSensorStateChange(Sensors::BeamState old_state, Sensors::BeamState new_state, unsigned long timestamp_us);
+    void processBeamStateChange(Sensors::BeamState beam_state, unsigned long timestamp_us);
+    void updateLEDState(bool parking_detected, unsigned long event_time_us);
+    void recordEvent(EventType type, unsigned long timestamp_us, const String& details = "");
+    void notifyEventCallbacks(const ParkingEvent& event);
+    void notifyStateCallbacks(ParkingState old_state, ParkingState new_state);
+    void updateStatistics(const ParkingEvent& event);
+    void performHealthCheck();
+    bool validateComponentHealth();
+    
+    // Constants
+    static const size_t MAX_EVENT_HISTORY = 100;               // Maximum stored events
+    static const unsigned long MAX_PROCESSING_TIME_US = 100000; // 100ms constitutional requirement
+    static const unsigned long HEALTH_CHECK_INTERVAL_US = 10000000; // 10 seconds
+    static const unsigned long STATE_DEBOUNCE_TIME_US = 50000; // 50ms state debounce
+    static constexpr float MIN_SUCCESS_RATE = 99.0f;               // 99% minimum success rate
+};
+
+} // namespace Core

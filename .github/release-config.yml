@@ -1,0 +1,91 @@
+# GitHub Release Configuration for OTA Updates
+
+name-template: 'Garage Sensor Firmware v$RESOLVED_VERSION'
+tag-template: 'v$RESOLVED_VERSION'
+
+version-resolver:
+  major:
+    labels:
+      - 'breaking'
+      - 'major'
+  minor:
+    labels:
+      - 'enhancement'
+      - 'feature'
+      - 'minor'
+  patch:
+    labels:
+      - 'bug'
+      - 'bugfix'
+      - 'patch'
+      - 'security'
+  default: patch
+
+categories:
+  - title: '🚨 Breaking Changes'
+    labels:
+      - 'breaking'
+      - 'major'
+  - title: '🎉 New Features'
+    labels:
+      - 'enhancement'
+      - 'feature'
+  - title: '🐛 Bug Fixes'
+    labels:
+      - 'bug'
+      - 'bugfix'
+  - title: '🔒 Security Updates'
+    labels:
+      - 'security'
+  - title: '⚡ Performance Improvements'
+    labels:
+      - 'performance'
+  - title: '🔧 Maintenance'
+    labels:
+      - 'maintenance'
+      - 'refactor'
+      - 'dependencies'
+
+change-template: '- $TITLE (#$NUMBER) @$AUTHOR'
+change-title-escapes: '\<*_&'
+
+template: |
+  ## Garage Sensor Firmware v$RESOLVED_VERSION
+  
+  ### Build Information
+  - **Release Date**: $DATETIME
+  - **Target Hardware**: ESP32-S3-NANO
+  - **Minimum Requirements**: 2MB free flash, 64KB RAM
+  - **OTA Compatible**: ✅ Yes (from v1.0.0+)
+  
+  $CHANGES
+  
+  ### Installation
+  
+  #### OTA Update (Recommended)
+  Device will automatically detect this update within 24 hours, or trigger manual check:
+  ```bash
+  curl -X POST http://device-ip/api/v1/ota/check
+  ```
+  
+  #### USB Flashing
+  ```bash
+  # Download firmware.bin from release assets
+  pio run --target upload
+  ```
+  
+  ### Security
+  - **SHA256 Checksum**: See firmware-manifest.json
+  - **Signed Release**: ✅ Verified build
+  - **HTTPS Download**: ✅ Encrypted transfer
+  - **Integrity Check**: ✅ Automatic validation
+  
+  ### Rollback
+  If issues occur after update:
+  - Automatic rollback after 3 boot failures
+  - Manual rollback via serial: `rollback_firmware`
+  - Factory reset: Hold reset for 10 seconds
+  
+  ---
+  
+  **⚠️ Important**: Always verify SHA256 checksums before manual installation

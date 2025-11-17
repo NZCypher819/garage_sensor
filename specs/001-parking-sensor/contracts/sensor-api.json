@@ -1,0 +1,116 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "E3JK-RR11 Sensor Interface",
+    "version": "1.0.0",
+    "description": "Hardware interface contract for E3JK-RR11 infrared beam sensor"
+  },
+  "paths": {},
+  "components": {
+    "schemas": {
+      "SensorReading": {
+        "type": "object",
+        "required": ["timestamp", "beam_state", "raw_signal", "debounced_signal", "validation_passed"],
+        "properties": {
+          "timestamp": {
+            "type": "string",
+            "format": "date-time",
+            "description": "ISO 8601 timestamp of reading"
+          },
+          "beam_state": {
+            "type": "string",
+            "enum": ["intact", "broken"],
+            "description": "Processed beam state after validation"
+          },
+          "raw_signal": {
+            "type": "boolean",
+            "description": "Direct GPIO pin state from sensor"
+          },
+          "debounced_signal": {
+            "type": "boolean", 
+            "description": "Signal after hardware debouncing applied"
+          },
+          "validation_passed": {
+            "type": "boolean",
+            "description": "Whether reading passed software validation checks"
+          },
+          "consecutive_readings": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Number of consecutive similar readings"
+          },
+          "noise_detected": {
+            "type": "boolean",
+            "description": "Whether electrical interference was detected"
+          }
+        }
+      },
+      "SensorConfiguration": {
+        "type": "object",
+        "required": ["gpio_pin", "trigger_mode", "debounce_ms"],
+        "properties": {
+          "gpio_pin": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 48,
+            "description": "ESP32 GPIO pin connected to sensor output"
+          },
+          "trigger_mode": {
+            "type": "string",
+            "enum": ["falling", "rising", "change"],
+            "description": "GPIO interrupt trigger mode"
+          },
+          "debounce_ms": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "description": "Hardware debouncing duration in milliseconds"
+          },
+          "validation_samples": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 10,
+            "description": "Number of consecutive samples required for validation"
+          },
+          "noise_threshold": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 50,
+            "description": "Maximum state changes per second before noise detection"
+          }
+        }
+      },
+      "SensorHealth": {
+        "type": "object",
+        "required": ["status", "last_reading", "error_count"],
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": ["healthy", "degraded", "failed"],
+            "description": "Current sensor health status"
+          },
+          "last_reading": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Timestamp of last valid reading"
+          },
+          "error_count": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Number of validation failures in current session"
+          },
+          "noise_incidents": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Number of noise detection events"
+          },
+          "uptime_seconds": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Sensor operational time since last reset"
+          }
+        }
+      }
+    }
+  }
+}

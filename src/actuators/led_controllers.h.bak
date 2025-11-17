@@ -1,0 +1,153 @@
+#pragma once
+
+#include <Arduino.h>
+#include <ArduinoJson.h>
+
+/**
+ * LED Controller Interfaces
+ * Constitutional Principle I: Reliability-First
+ * 
+ * Common interfaces for LED control with standardized patterns,
+ * timing validation, and error handling across all LED controllers
+ */
+
+namespace Actuators {
+
+enum class LEDState {
+    OFF = 0,
+    ON = 1,
+    BLINK = 2,
+    PULSE = 3,
+    PATTERN = 4
+};
+
+enum class LEDBrightness {
+    OFF = 0,
+    DIM = 64,      // 25% brightness
+    MEDIUM = 128,  // 50% brightness  
+    BRIGHT = 255   // 100% brightness
+};
+
+enum class LEDHealth {
+    HEALTHY = 0,
+    WARNING = 1,
+    ERROR = 2,
+    OFFLINE = 3
+};
+
+struct LEDPattern {
+    unsigned int on_time_ms;
+    unsigned int off_time_ms;
+    unsigned int repeat_count;  // 0 = infinite
+    LEDBrightness brightness;
+    
+    LEDPattern() : on_time_ms(0), off_time_ms(0), repeat_count(0), brightness(LEDBrightness::OFF) {}
+    LEDPattern(unsigned int on_ms, unsigned int off_ms, unsigned int repeats = 0, LEDBrightness bright = LEDBrightness::BRIGHT)
+        : on_time_ms(on_ms), off_time_ms(off_ms), repeat_count(repeats), brightness(bright) {}
+};
+
+struct LEDStats {
+    unsigned long total_operations;
+    unsigned long pattern_cycles;
+    unsigned long state_changes;
+    unsigned long response_violations;
+    unsigned long last_update_us;
+    
+    LEDStats() : total_operations(0), pattern_cycles(0), state_changes(0), 
+                 response_violations(0), last_update_us(0) {}
+};
+
+/**
+ * Abstract base class for all LED controllers
+ * Provides common functionality and interface standardization
+ */
+class BaseLEDController {
+public:
+    virtual ~BaseLEDController() = default;
+    
+    /**
+     * Initialize LED hardware
+     * @return true if initialization successful
+     */
+    virtual bool begin() = 0;
+    
+    /**
+     * Set LED state (ON/OFF)
+     * @param state Target LED state
+     * @return true if state change successful
+     */
+    virtual bool setState(LEDState state) = 0;
+    
+    /**
+     * Set LED brightness level
+     * @param brightness Target brightness level
+     * @return true if brightness change successful
+     */
+    virtual bool setBrightness(LEDBrightness brightness) = 0;
+    
+    /**
+     * Start LED pattern
+     * @param pattern LED pattern to execute
+     * @return true if pattern started successfully
+     */
+    virtual bool startPattern(const LEDPattern& pattern) = 0;
+    
+    /**
+     * Stop current LED pattern and turn off
+     * @return true if stop successful
+     */
+    virtual bool stop() = 0;
+    
+    /**
+     * Update LED controller state machine
+     * Called frequently from main loop
+     */
+    virtual void update() = 0;
+    
+    /**
+     * Get current LED health status
+     * @return Current health state
+     */
+    virtual LEDHealth getHealth() const = 0;
+    
+    /**
+     * Get LED controller statistics
+     * @return Performance and usage statistics
+     */
+    virtual LEDStats getStats() const = 0;
+    
+    /**
+     * Reset statistics counters
+     */
+    virtual void resetStats() = 0;
+    
+    /**
+     * Get diagnostic information
+     * @return JSON string with diagnostic data
+     */
+    virtual String getDiagnosticData() const = 0;
+    
+    /**
+     * Perform LED self-test
+     * @return true if self-test passed
+     */
+    virtual bool performSelfTest() = 0;
+
+protected:
+    // Common constants for all LED controllers
+    static const unsigned long MAX_RESPONSE_TIME_US = 50000;  // 50ms max LED response (faster than constitutional 100ms)
+    static const unsigned long HEALTH_CHECK_INTERVAL_US = 5000000; // 5 seconds
+    static const unsigned long PATTERN_UPDATE_INTERVAL_US = 10000;  // 10ms for smooth patterns
+};
+
+// Predefined common LED patterns
+namespace LEDPatterns {
+    const LEDPattern OFF(0, 0, 0, LEDBrightness::OFF);
+    const LEDPattern SOLID_BRIGHT(1000, 0, 1, LEDBrightness::BRIGHT);
+    const LEDPattern SOLID_DIM(1000, 0, 1, LEDBrightness::DIM);
+    const LEDPattern STARTUP_BLINK(200, 200, 2, LEDBrightness::BRIGHT);     // 2x blink for startup
+    const LEDPattern ERROR_RAPID_BLINK(100, 100, 0, LEDBrightness::BRIGHT); // Rapid blink for errors
+    const LEDPattern IDLE_DIM(1000, 0, 1, LEDBrightness::DIM);             // Continuous dim for idle
+}
+
+} // namespace Actuators

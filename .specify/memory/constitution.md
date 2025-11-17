@@ -1,50 +1,55 @@
-# [PROJECT_NAME] Constitution
-<!-- Example: Spec Constitution, TaskFlow Constitution, etc. -->
+<!--
+Sync Impact Report:
+- Version change: 1.0.0 → 1.1.0 (added VI. Test-Driven Development principle)
+- Added sections: Principle VI with testing requirements, updated Development Workflow
+- Templates requiring updates: ✅ plan.md templates need constitution check for testing principle
+- Follow-up TODOs: Review existing tasks.md to ensure test tasks are included per new principle
+-->
+
+# Garage Sensor V2 Constitution
 
 ## Core Principles
 
-### [PRINCIPLE_1_NAME]
-<!-- Example: I. Library-First -->
-[PRINCIPLE_1_DESCRIPTION]
-<!-- Example: Every feature starts as a standalone library; Libraries must be self-contained, independently testable, documented; Clear purpose required - no organizational-only libraries -->
+### I. Reliability-First
+Hardware and software must prioritize reliability over features. All sensor readings MUST be validated and error-handled. System MUST gracefully degrade when components fail. Data integrity is non-negotiable - corrupted readings are worse than no readings.
 
-### [PRINCIPLE_2_NAME]
-<!-- Example: II. CLI Interface -->
-[PRINCIPLE_2_DESCRIPTION]
-<!-- Example: Every library exposes functionality via CLI; Text in/out protocol: stdin/args → stdout, errors → stderr; Support JSON + human-readable formats -->
+**Rationale**: IoT sensor systems operate unattended and must function reliably in varying environmental conditions. False readings can trigger incorrect actions.
 
-### [PRINCIPLE_3_NAME]
-<!-- Example: III. Test-First (NON-NEGOTIABLE) -->
-[PRINCIPLE_3_DESCRIPTION]
-<!-- Example: TDD mandatory: Tests written → User approved → Tests fail → Then implement; Red-Green-Refactor cycle strictly enforced -->
+### II. Power-Aware Design
+All features MUST consider power consumption impact. Battery-powered components require explicit power budgeting. Sleep modes and efficient communication protocols are mandatory. Power consumption must be measured and documented for each feature.
 
-### [PRINCIPLE_4_NAME]
-<!-- Example: IV. Integration Testing -->
-[PRINCIPLE_4_DESCRIPTION]
-<!-- Example: Focus areas requiring integration tests: New library contract tests, Contract changes, Inter-service communication, Shared schemas -->
+**Rationale**: Garage sensors often run on battery power and must operate for months without intervention. Poor power management leads to frequent maintenance and system unreliability.
 
-### [PRINCIPLE_5_NAME]
-<!-- Example: V. Observability, VI. Versioning & Breaking Changes, VII. Simplicity -->
-[PRINCIPLE_5_DESCRIPTION]
-<!-- Example: Text I/O ensures debuggability; Structured logging required; Or: MAJOR.MINOR.BUILD format; Or: Start simple, YAGNI principles -->
+### III. Specification-Driven Development
+All features start with user scenarios in spec.md. Technical plans in plan.md are mandatory before implementation. User stories must be independently testable and prioritized. No code without approved specifications.
 
-## [SECTION_2_NAME]
-<!-- Example: Additional Constraints, Security Requirements, Performance Standards, etc. -->
+**Rationale**: IoT systems have complex integration requirements. Clear specifications prevent scope creep and ensure features solve real user problems.
 
-[SECTION_2_CONTENT]
-<!-- Example: Technology stack requirements, compliance standards, deployment policies, etc. -->
+### IV. Secure-by-Design
+All communication MUST use encryption. Device authentication is mandatory. Local network segmentation required. Regular security audits and updates are non-negotiable. Default credentials prohibited.
 
-## [SECTION_3_NAME]
-<!-- Example: Development Workflow, Review Process, Quality Gates, etc. -->
+**Rationale**: IoT devices are common attack vectors. Garage sensors may control physical access and must maintain security even when compromised networks exist.
 
-[SECTION_3_CONTENT]
-<!-- Example: Code review requirements, testing gates, deployment approval process, etc. -->
+### V. Observability and Diagnostics
+Structured logging at all system levels is mandatory. Device health metrics must be exposed. Remote diagnostics capability required. Error states must be clearly communicated to users and systems.
+
+**Rationale**: Remote sensor systems are difficult to debug physically. Comprehensive observability enables rapid issue resolution and predictive maintenance.
+
+### VI. Test-Driven Development
+Every function, module, and feature MUST have automated tests. Unit tests are mandatory for all business logic. Integration tests required for hardware interfaces and communication protocols. Test coverage must be measured and maintained above 80%. No code may be deployed without passing tests.
+
+**Rationale**: IoT devices operate autonomously in remote environments where debugging is difficult. Comprehensive automated testing prevents runtime failures, ensures reliability under varying conditions, and enables confident remote updates. Untested code in critical systems is a liability.
+
+## Hardware Standards
+
+All sensor hardware MUST meet IP65 rating minimum for garage environments. Operating temperature range: -20°C to 60°C. Communication range testing required in realistic conditions. Electromagnetic interference testing mandatory for garage door opener compatibility.
+
+## Development Workflow
+
+Feature implementation follows speckit workflow: specify → plan → tasks → implement → test → checklist. Each user story must be independently deployable and testable. Automated test suites must be written alongside implementation code. Code reviews mandatory for all changes. Integration testing required for sensor communication and power management changes. Test coverage reports must accompany all pull requests.
 
 ## Governance
-<!-- Example: Constitution supersedes all other practices; Amendments require documentation, approval, migration plan -->
 
-[GOVERNANCE_RULES]
-<!-- Example: All PRs/reviews must verify compliance; Complexity must be justified; Use [GUIDANCE_FILE] for runtime development guidance -->
+This constitution supersedes all other development practices. Amendments require documented justification and migration plan. All pull requests must verify compliance with applicable principles. Complexity must be justified against reliability requirements.
 
-**Version**: [CONSTITUTION_VERSION] | **Ratified**: [RATIFICATION_DATE] | **Last Amended**: [LAST_AMENDED_DATE]
-<!-- Example: Version: 2.1.1 | Ratified: 2025-06-13 | Last Amended: 2025-07-16 -->
+**Version**: 1.1.0 | **Ratified**: 2025-11-17 | **Last Amended**: 2025-11-17

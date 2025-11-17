@@ -1,0 +1,102 @@
+name: Feature Request
+description: Suggest a new feature or enhancement
+title: "[FEATURE] "
+labels: ["enhancement", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for suggesting a new feature! Help us understand what you'd like to see.
+        
+  - type: dropdown
+    id: category
+    attributes:
+      label: Feature Category
+      description: What area does this feature relate to?
+      options:
+        - Parking Detection
+        - User Interface / LEDs
+        - Power Management
+        - Network / OTA
+        - Security
+        - Configuration
+        - Monitoring / Diagnostics
+        - Hardware Integration
+        - Other
+    validations:
+      required: true
+      
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem Statement
+      description: What problem does this feature solve?
+      placeholder: "As a user, I'm frustrated when..."
+    validations:
+      required: true
+      
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed Solution
+      description: Describe your ideal solution
+      placeholder: "I would like to see..."
+    validations:
+      required: true
+      
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternative Solutions
+      description: Any alternative approaches you've considered?
+      
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority
+      description: How important is this feature to you?
+      options:
+        - "Low - Nice to have"
+        - "Medium - Would improve experience"
+        - "High - Significantly impacts usability"
+        - "Critical - Blocking current use"
+    validations:
+      required: true
+      
+  - type: checkboxes
+    id: constitutional
+    attributes:
+      label: Constitutional Compliance
+      description: Check which principles this feature supports
+      options:
+        - label: "Reliability First - Improves system reliability"
+        - label: "User Safety - Enhances safety features"
+        - label: "Performance Excellence - Improves response time"
+        - label: "Resource Efficiency - Reduces power consumption"
+        - label: "Maintainability - Easier to maintain/debug"
+        - label: "Security by Design - Enhances security posture"
+        
+  - type: checkboxes
+    id: impact
+    attributes:
+      label: Implementation Considerations
+      description: Check areas that might be affected
+      options:
+        - label: "Requires hardware changes"
+        - label: "May affect power consumption"
+        - label: "Could impact response time"
+        - label: "Needs new dependencies"
+        - label: "Requires OTA update mechanism"
+        - label: "May need configuration changes"
+        - label: "Could affect security model"
+        
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional Context
+      description: |
+        Any other context, mockups, or examples:
+        - Similar features in other products
+        - Technical specifications
+        - User interface mockups
+        - Performance requirements

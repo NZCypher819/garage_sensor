@@ -1,0 +1,273 @@
+#include "health_monitor.h"
+#include "logger.h"
+#include "error_handler.h"
+#include "../config/config_manager.h"
+#include <ArduinoJson.h>
+
+/**
+ * Health Monitor Implementation
+ * Constitutional Principle V: Observability + Principle I: Reliability-First
+ * 
+ * System health monitoring with comprehensive metrics and fault detection
+ */
+
+namespace Diagnostics {
+
+HealthMonitor* HealthMonitor::instance_ = nullptr;
+
+HealthMonitor& HealthMonitor::getInstance() {
+    if (!instance_) {
+        instance_ = new HealthMonitor();
+    }
+    return *instance_;
+}
+
+HealthMonitor::HealthMonitor() : initialized_(false), last_update_(0) {
+    system_health_.boot_time = millis();
+    system_health_.restart_count = 0;
+    system_health_.total_uptime_hours = 0;
+}
+
+void HealthMonitor::begin() {
+    // Load previous uptime data from config if available
+    Config::ConfigManager& config = Config::ConfigManager::getInstance();
+    system_health_.restart_count = config.getInt("system.restart_count", 0) + 1;
+    system_health_.total_uptime_hours = config.getFloat("system.total_uptime_hours", 0.0);
+    
+    // Save updated restart count
+    config.setInt("system.restart_count", system_health_.restart_count);
+    
+    initialized_ = true;
+    last_update_ = millis();
+    
+    StaticJsonDocument<512> startDoc;
+    startDoc["restart_count"] = (int)system_health_.restart_count;
+    startDoc["total_uptime_hours"] = system_health_.total_uptime_hours;
+    LOG_INFO("HealthMonitor", "Health monitoring started", startDoc.as<JsonObject>());
+}
+
+void HealthMonitor::update() {
+    if (!initialized_) return;
+    
+    unsigned long now = millis();
+    if (now - last_update_ < UPDATE_INTERVAL_MS) {
+        return;
+    }
+    
+    last_update_ = now;
+    
+    // Update system metrics
+    updateSystemMetrics();
+    
+    // Check component health
+    checkComponentHealth();
+    
+    // Update fault detector
+    Core::FaultDetector::getInstance().checkSystemHealth();
+    
+    // Save periodic data
+    saveHealthData();
+}
+
+void HealthMonitor::updateSystemMetrics() {
+    unsigned long uptime_ms = millis() - system_health_.boot_time;
+    system_health_.uptime_seconds = uptime_ms / 1000;
+    
+    system_health_.free_heap_bytes = ESP.getFreeHeap();
+    system_health_.min_free_heap_bytes = min(system_health_.min_free_heap_bytes, 
+                                             system_health_.free_heap_bytes);
+    
+    system_health_.cpu_frequency_mhz = ESP.getCpuFreqMHz();
+    
+    // Temperature (if available on ESP32-S3)
+    #ifdef CONFIG_IDF_TARGET_ESP32S3
+    system_health_.temperature_celsius = temperatureRead();
+    #endif
+}
+
+void HealthMonitor::checkComponentHealth() {
+    // Memory health check
+    if (system_health_.free_heap_bytes < 5000) {
+        Core::FaultDetector::getInstance().reportComponentHealth(
+            "Memory", false, "Critical: " + String(system_health_.free_heap_bytes) + " bytes free");
+    } else if (system_health_.free_heap_bytes < 10000) {
+        Core::FaultDetector::getInstance().reportComponentHealth(
+            "Memory", true, "Warning: " + String(system_health_.free_heap_bytes) + " bytes free");
+    } else {
+        Core::FaultDetector::getInstance().reportComponentHealth(
+            "Memory", true, "OK: " + String(system_health_.free_heap_bytes) + " bytes free");
+    }
+    
+    // Temperature health check
+    if (system_health_.temperature_celsius > 80.0) {
+        Core::FaultDetector::getInstance().reportComponentHealth(
+            "Temperature", false, "High: " + String(system_health_.temperature_celsius) + "°C");
+    } else {
+        Core::FaultDetector::getInstance().reportComponentHealth(
+            "Temperature", true, String(system_health_.temperature_celsius) + "°C");
+    }
+}
+
+void HealthMonitor::reportComponentStatus(const String& component, ComponentStatus status, 
+                                         const String& details) {
+    ComponentHealth& health = component_health_[component];
+    
+    bool statusChanged = (health.status != status);
+    health.status = status;
+    health.last_update = millis();
+    health.details = details;
+    
+    if (statusChanged) {
+        StaticJsonDocument<512> logDoc;
+        logDoc["component"] = component.c_str();
+        logDoc["details"] = details.c_str();
+        
+        switch (status) {
+            case ComponentStatus::HEALTHY:
+                LOG_INFO("HealthMonitor", "Component status: HEALTHY", logDoc.as<JsonObject>());
+                Core::FaultDetector::getInstance().reportComponentHealth(component, true, details);
+                break;
+                
+            case ComponentStatus::WARNING:
+                LOG_WARN("HealthMonitor", "Component status: WARNING", logDoc.as<JsonObject>());
+                Core::FaultDetector::getInstance().reportComponentHealth(component, true, details);
+                break;
+                
+            case ComponentStatus::ERROR:
+                LOG_ERROR("HealthMonitor", "Component status: ERROR", logDoc.as<JsonObject>());
+                Core::FaultDetector::getInstance().reportComponentHealth(component, false, details);
+                break;
+                
+            case ComponentStatus::OFFLINE:
+                LOG_ERROR("HealthMonitor", "Component status: OFFLINE", logDoc.as<JsonObject>());
+                Core::FaultDetector::getInstance().reportComponentHealth(component, false, details);
+                break;
+        }
+    }
+}
+
+ComponentStatus HealthMonitor::getComponentStatus(const String& component) const {
+    auto it = component_health_.find(component);
+    if (it == component_health_.end()) {
+        return ComponentStatus::UNKNOWN;
+    }
+    return it->second.status;
+}
+
+String HealthMonitor::getHealthReport() const {
+    JsonDocument doc;
+    JsonObject report = doc.to<JsonObject>();
+    
+    // System health
+    JsonObject system = report["system"].to<JsonObject>();
+    system["uptime_seconds"] = system_health_.uptime_seconds;
+    system["boot_time"] = system_health_.boot_time;
+    system["restart_count"] = system_health_.restart_count;
+    system["total_uptime_hours"] = system_health_.total_uptime_hours;
+    system["free_heap_bytes"] = system_health_.free_heap_bytes;
+    system["min_free_heap_bytes"] = system_health_.min_free_heap_bytes;
+    system["cpu_frequency_mhz"] = system_health_.cpu_frequency_mhz;
+    system["temperature_celsius"] = system_health_.temperature_celsius;
+    
+    // Component health
+    JsonObject components = report["components"].to<JsonObject>();
+    for (const auto& pair : component_health_) {
+        JsonObject comp = components[pair.first].to<JsonObject>();
+        comp["status"] = statusToString(pair.second.status);
+        comp["last_update"] = pair.second.last_update;
+        comp["details"] = pair.second.details;
+    }
+    
+    // Performance metrics
+    JsonObject performance = report["performance"].to<JsonObject>();
+    performance["response_time_compliance"] = getResponseTimeCompliance();
+    performance["error_rate"] = getErrorRate();
+    
+    // Overall health summary
+    report["overall_status"] = getOverallHealthStatus();
+    report["degraded_mode"] = Core::FaultDetector::getInstance().isDegradedMode();
+    
+    String result;
+    serializeJsonPretty(doc, result);
+    return result;
+}
+
+String HealthMonitor::getMetricsJson() const {
+    JsonDocument doc;
+    JsonObject metrics = doc.to<JsonObject>();
+    
+    metrics["timestamp"] = millis();
+    metrics["free_heap"] = system_health_.free_heap_bytes;
+    metrics["uptime_seconds"] = system_health_.uptime_seconds;
+    metrics["temperature"] = system_health_.temperature_celsius;
+    metrics["cpu_freq_mhz"] = system_health_.cpu_frequency_mhz;
+    
+    String result;
+    serializeJson(doc, result);
+    return result;
+}
+
+void HealthMonitor::saveHealthData() {
+    // Periodically save uptime data
+    if (system_health_.uptime_seconds % 3600 == 0) { // Every hour
+        float hours = system_health_.total_uptime_hours + (system_health_.uptime_seconds / 3600.0);
+        Config::ConfigManager::getInstance().setFloat("system.total_uptime_hours", hours);
+    }
+}
+
+String HealthMonitor::statusToString(ComponentStatus status) const {
+    switch (status) {
+        case ComponentStatus::HEALTHY: return "HEALTHY";
+        case ComponentStatus::WARNING: return "WARNING";
+        case ComponentStatus::ERROR: return "ERROR";
+        case ComponentStatus::OFFLINE: return "OFFLINE";
+        case ComponentStatus::UNKNOWN: return "UNKNOWN";
+        default: return "INVALID";
+    }
+}
+
+String HealthMonitor::getOverallHealthStatus() const {
+    // Determine overall system health based on components
+    bool hasErrors = false;
+    bool hasWarnings = false;
+    
+    for (const auto& pair : component_health_) {
+        switch (pair.second.status) {
+            case ComponentStatus::ERROR:
+            case ComponentStatus::OFFLINE:
+                hasErrors = true;
+                break;
+            case ComponentStatus::WARNING:
+                hasWarnings = true;
+                break;
+            default:
+                break;
+        }
+    }
+    
+    if (hasErrors || Core::FaultDetector::getInstance().isDegradedMode()) {
+        return "DEGRADED";
+    } else if (hasWarnings) {
+        return "WARNING";
+    } else {
+        return "HEALTHY";
+    }
+}
+
+float HealthMonitor::getResponseTimeCompliance() const {
+    // Get compliance rate from performance monitor
+    // This would be integrated with the timer utilities performance monitor
+    return 1.0; // Placeholder - would be calculated from actual performance data
+}
+
+float HealthMonitor::getErrorRate() const {
+    // Calculate error rate based on error handler data
+    Core::ErrorHandler& errorHandler = Core::ErrorHandler::getInstance();
+    
+    if (errorHandler.hasActiveErrors()) {
+        return 0.1; // 10% error rate if active errors
+    }
+    return 0.0;
+}
+
+} // namespace Diagnostics

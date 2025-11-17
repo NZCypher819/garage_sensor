@@ -1,0 +1,155 @@
+#pragma once
+
+#include <Arduino.h>
+#include <ArduinoJson.h>
+#include <vector>
+#include <map>
+
+/**
+ * Error Handling Framework
+ * Constitutional Principle I: Reliability-First
+ * 
+ * Centralized error handling with graceful degradation
+ * Provides error tracking, recovery mechanisms, and fault tolerance
+ */
+
+namespace Core {
+
+enum class ErrorCode {
+    NONE = 0,
+    
+    // Hardware errors
+    GPIO_FAILURE = 100,
+    SENSOR_FAILURE = 101,
+    LED_FAILURE = 102,
+    PWM_FAILURE = 103,
+    
+    // Network errors
+    WIFI_CONNECTION_FAILED = 200,
+    HTTPS_REQUEST_FAILED = 201,
+    OTA_DOWNLOAD_FAILED = 202,
+    
+    // Storage errors
+    SPIFFS_MOUNT_FAILED = 300,
+    CONFIG_LOAD_FAILED = 301,
+    LOG_WRITE_FAILED = 302,
+    
+    // System errors
+    MEMORY_ALLOCATION_FAILED = 400,
+    WATCHDOG_TIMEOUT = 401,
+    CRITICAL_COMPONENT_FAILURE = 402,
+    
+    // Validation errors
+    INVALID_CONFIGURATION = 500,
+    RESPONSE_TIME_VIOLATION = 501,
+    SENSOR_VALIDATION_FAILED = 502
+};
+
+enum class ErrorSeverity {
+    INFO = 0,      // Informational, no action needed
+    WARNING = 1,   // May cause degraded performance
+    ERROR = 2,     // Function impaired but recoverable
+    CRITICAL = 3,  // System stability at risk
+    FATAL = 4      // System shutdown required
+};
+
+struct ErrorInfo {
+    ErrorCode code;
+    ErrorSeverity severity;
+    String component;
+    String description;
+    unsigned long timestamp;
+    JsonObject context;
+};
+
+class ErrorHandler {
+public:
+    static ErrorHandler& getInstance();
+    
+    void begin();
+    
+    // Error reporting
+    void reportError(ErrorCode code, ErrorSeverity severity, 
+                    const String& component, const String& description,
+                    const JsonObject& context = JsonObject());
+    
+    // Error recovery
+    bool attemptRecovery(ErrorCode code);
+    
+    // Error status queries
+    bool hasActiveErrors() const;
+    bool hasCriticalErrors() const;
+    ErrorSeverity getHighestSeverity() const;
+    
+    // Error history
+    String getErrorReport() const;
+    void clearErrorHistory();
+    
+    // Error callbacks (for component-specific recovery)
+    typedef bool (*RecoveryCallback)(ErrorCode code, const JsonObject& context);
+    void registerRecoveryCallback(ErrorCode code, RecoveryCallback callback);
+    
+private:
+    ErrorHandler();
+    static ErrorHandler* instance_;
+    
+    std::vector<ErrorInfo> error_history_;
+    std::map<ErrorCode, RecoveryCallback> recovery_callbacks_;
+    
+    bool initialized_;
+    static const size_t MAX_ERROR_HISTORY = 50;
+    
+    String errorCodeToString(ErrorCode code) const;
+    String severityToString(ErrorSeverity severity) const;
+    void triggerWatchdog();
+};
+
+class FaultDetector {
+public:
+    static FaultDetector& getInstance();
+    
+    void begin();
+    
+    // System health monitoring
+    void checkSystemHealth();
+    void reportComponentHealth(const String& component, bool healthy, const String& details = "");
+    
+    // Graceful degradation
+    void enableDegradedMode(const String& reason);
+    void disableDegradedMode();
+    bool isDegradedMode() const;
+    
+    // Component status
+    bool isComponentHealthy(const String& component) const;
+    String getHealthReport() const;
+    
+private:
+    FaultDetector();
+    static FaultDetector* instance_;
+    
+    struct ComponentHealth {
+        bool healthy;
+        String lastError;
+        unsigned long lastCheckTime;
+        int failureCount;
+    };
+    
+    std::map<String, ComponentHealth> component_status_;
+    bool degraded_mode_;
+    String degradation_reason_;
+    unsigned long last_health_check_;
+    
+    bool initialized_;
+    static const unsigned long HEALTH_CHECK_INTERVAL_MS = 30000; // 30 seconds
+};
+
+} // namespace Core
+
+// Convenience macros for error reporting
+#define REPORT_ERROR(code, severity, component, description) \
+    Core::ErrorHandler::getInstance().reportError(code, severity, component, description)
+
+#define REPORT_ERROR_WITH_CONTEXT(code, severity, component, description, context) \
+    Core::ErrorHandler::getInstance().reportError(code, severity, component, description, context)
+
+    Core::ErrorHandler::getInstance().reportError(code, severity, component, description, context)

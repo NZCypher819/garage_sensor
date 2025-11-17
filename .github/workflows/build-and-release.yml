@@ -1,0 +1,126 @@
+name: Build and Release Firmware
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version tag (e.g., v1.0.0)'
+        required: true
+        type: string
+      pre_release:
+        description: 'Mark as pre-release'
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.x'
+    
+    - name: Install PlatformIO
+      run: |
+        python -m pip install --upgrade pip
+        pip install platformio
+    
+    - name: Extract version from tag or input
+      id: version
+      run: |
+        if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+          VERSION="${{ github.event.inputs.version }}"
+        else
+          VERSION=${GITHUB_REF#refs/tags/}
+        fi
+        echo "version=$VERSION" >> $GITHUB_OUTPUT
+        echo "version_number=${VERSION#v}" >> $GITHUB_OUTPUT
+        echo "build_hash=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+        echo "build_date=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> $GITHUB_OUTPUT
+    
+    - name: Update version in source code
+      run: |
+        # Update version in version_manager.cpp
+        sed -i 's/"1\.0\.0"/"${{ steps.version.outputs.version_number }}"/g' src/config/version_manager.cpp
+        sed -i 's/"unknown"/"${{ steps.version.outputs.build_hash }}"/g' src/config/version_manager.cpp
+        sed -i 's/"2024-01-01T00:00:00Z"/"${{ steps.version.outputs.build_date }}"/g' src/config/version_manager.cpp
+    
+    - name: Build firmware
+      run: |
+        pio run
+    
+    - name: Generate firmware manifest
+      run: |
+        mkdir -p release
+        FIRMWARE_PATH=".pio/build/esp32-s3-devkitc-1/firmware.bin"
+        FIRMWARE_SIZE=$(stat -c%s "$FIRMWARE_PATH")
+        FIRMWARE_SHA256=$(sha256sum "$FIRMWARE_PATH" | cut -d' ' -f1)
+        
+        cat > release/firmware-manifest.json << EOF
+        {
+          "version": "${{ steps.version.outputs.version }}",
+          "build_hash": "${{ steps.version.outputs.build_hash }}",
+          "build_date": "${{ steps.version.outputs.build_date }}",
+          "firmware_file": "firmware.bin",
+          "firmware_size": $FIRMWARE_SIZE,
+          "firmware_sha256": "$FIRMWARE_SHA256",
+          "target_device": "ESP32-S3",
+          "min_free_space": 2097152,
+          "requires_factory_reset": false
+        }
+        EOF
+    
+    - name: Copy firmware to release directory
+      run: |
+        cp .pio/build/esp32-s3-devkitc-1/firmware.bin release/
+        cp .pio/build/esp32-s3-devkitc-1/partitions.bin release/
+        cp .pio/build/esp32-s3-devkitc-1/bootloader.bin release/
+    
+    - name: Create release notes
+      run: |
+        echo "## Garage Sensor Firmware ${{ steps.version.outputs.version }}" > release/RELEASE_NOTES.md
+        echo "" >> release/RELEASE_NOTES.md
+        echo "### Build Information" >> release/RELEASE_NOTES.md
+        echo "- **Version**: ${{ steps.version.outputs.version }}" >> release/RELEASE_NOTES.md
+        echo "- **Build Hash**: ${{ steps.version.outputs.build_hash }}" >> release/RELEASE_NOTES.md
+        echo "- **Build Date**: ${{ steps.version.outputs.build_date }}" >> release/RELEASE_NOTES.md
+        echo "- **Target**: ESP32-S3-NANO" >> release/RELEASE_NOTES.md
+        echo "" >> release/RELEASE_NOTES.md
+        echo "### Features" >> release/RELEASE_NOTES.md
+        echo "- Parking detection with E3JK-RR11 IR sensor" >> release/RELEASE_NOTES.md
+        echo "- System health monitoring with dual LED status" >> release/RELEASE_NOTES.md
+        echo "- Power management with <10mA idle consumption" >> release/RELEASE_NOTES.md
+        echo "- Secure OTA updates with SHA256 integrity validation" >> release/RELEASE_NOTES.md
+        echo "- Automatic rollback protection" >> release/RELEASE_NOTES.md
+        echo "" >> release/RELEASE_NOTES.md
+        echo "### Installation" >> release/RELEASE_NOTES.md
+        echo "1. Download firmware.bin" >> release/RELEASE_NOTES.md
+        echo "2. Use ESP32 flash tool or OTA update" >> release/RELEASE_NOTES.md
+        echo "3. Verify SHA256 checksum from manifest" >> release/RELEASE_NOTES.md
+    
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: firmware-${{ steps.version.outputs.version }}
+        path: release/
+    
+    - name: Create GitHub Release
+      uses: ncipollo/release-action@v1
+      with:
+        tag: ${{ steps.version.outputs.version }}
+        name: Garage Sensor Firmware ${{ steps.version.outputs.version }}
+        bodyFile: release/RELEASE_NOTES.md
+        artifacts: "release/firmware.bin,release/firmware-manifest.json,release/partitions.bin,release/bootloader.bin"
+        prerelease: ${{ github.event.inputs.pre_release || false }}
+        token: ${{ secrets.GITHUB_TOKEN }}

@@ -1,0 +1,66 @@
+#pragma once
+
+#include <Arduino.h>
+#include <ArduinoJson.h>
+#include <vector>
+
+/**
+ * Constitutional Principle V: Observability
+ * 
+ * Structured logging system for comprehensive diagnostics
+ * Supports multiple log levels, persistent storage, and JSON output
+ */
+
+namespace Diagnostics {
+
+enum class LogLevel {
+    DEBUG = 0,
+    INFO = 1,
+    WARN = 2,
+    ERROR = 3
+};
+
+class Logger {
+public:
+    static Logger& getInstance();
+    
+    void begin(LogLevel level = LogLevel::INFO);
+    
+    void log(LogLevel level, const String& component, const String& message, 
+             const JsonObject& data = JsonObject());
+    
+    // Convenience methods
+    void logError(const String& component, const String& message, const JsonObject& data = JsonObject());
+    void logWarning(const String& component, const String& message, const JsonObject& data = JsonObject());
+    void logInfo(const String& component, const String& message, const JsonObject& data = JsonObject());
+    void logDebug(const String& component, const String& message, const JsonObject& data = JsonObject());
+    
+    // Log retrieval for diagnostics
+    String getRecentLogs(int count = 50);
+    void clearLogs();
+    
+    // Configuration
+    void setLogLevel(LogLevel level) { log_level_ = level; }
+    LogLevel getLogLevel() const { return log_level_; }
+    
+private:
+    Logger();
+    static Logger* instance_;
+    
+    LogLevel log_level_;
+    bool initialized_;
+    
+    static const size_t MAX_LOG_SIZE_BYTES = 10240; // 10KB
+    
+    String levelToString(LogLevel level);
+    void storeLogEntry(const String& logJson);
+    void rotateLogIfNeeded();
+};
+
+// Global convenience macros
+#define LOG_ERROR(component, message, ...) Diagnostics::Logger::getInstance().logError(component, message, ##__VA_ARGS__)
+#define LOG_WARN(component, message, ...) Diagnostics::Logger::getInstance().logWarning(component, message, ##__VA_ARGS__)
+#define LOG_INFO(component, message, ...) Diagnostics::Logger::getInstance().logInfo(component, message, ##__VA_ARGS__)
+#define LOG_DEBUG(component, message, ...) Diagnostics::Logger::getInstance().logDebug(component, message, ##__VA_ARGS__)
+
+} // namespace Diagnostics

@@ -1,0 +1,408 @@
+#include "parking_led_controller.h"
+
+/**
+ * Parking LED Controller Implementation
+ * Constitutional Principle I: Reliability-First
+ * 
+ * High-speed LED control for parking detection with <50ms response
+ * Direct GPIO control optimized for minimal latency
+ */
+
+namespace Actuators {
+
+ParkingLEDController::ParkingLEDController(int pin, bool active_high)
+    : pin_(pin), active_high_(active_high), current_state_(LEDState::OFF),
+      current_brightness_(LEDBrightness::BRIGHT), current_physical_state_(false),
+      led_health_(LEDHealth::OFFLINE), pattern_active_(false),
+      pattern_start_time_us_(0), pattern_cycle_start_us_(0),
+      pattern_cycles_completed_(0), pattern_led_on_(false),
+      last_operation_time_us_(0), last_health_check_us_(0) {
+    
+    resetStats();
+    
+    StaticJsonDocument<128> initDoc;
+    initDoc["pin"] = pin_;
+    initDoc["active_high"] = active_high_;
+    LOG_INFO("ParkingLED", "Controller initialized", initDoc.as<JsonObject>());
+}
+
+bool ParkingLEDController::begin() {
+    TIMED_OPERATION("ParkingLED::begin");
+    
+    // Configure GPIO pin
+    pinMode(pin_, OUTPUT);
+    
+    // Set initial state (OFF)
+    setPhysicalState(false);
+    current_state_ = LEDState::OFF;
+    led_health_ = LEDHealth::HEALTHY;
+    last_operation_time_us_ = micros();
+    last_health_check_us_ = micros();
+    
+    // Perform initialization self-test
+    if (!performSelfTest()) {
+        LOG_WARN("ParkingLED", "Self-test failed during initialization");
+        led_health_ = LEDHealth::WARNING;
+    }
+    
+    StaticJsonDocument<128> beginDoc;
+    beginDoc["pin"] = pin_;
+    beginDoc["health"] = (int)led_health_;
+    LOG_INFO("ParkingLED", "Controller started", beginDoc.as<JsonObject>());
+    
+    return true;
+}
+
+bool ParkingLEDController::setState(LEDState state) {
+    TIMED_OPERATION("ParkingLED::setState");
+    
+    unsigned long start_time = micros();
+    LEDState old_state = current_state_;
+    
+    stats_.total_operations++;
+    
+    // Stop any active pattern when setting direct state
+    if (pattern_active_ && state != LEDState::PATTERN) {
+        pattern_active_ = false;
+    }
+    
+    bool success = false;
+    
+    switch (state) {
+        case LEDState::OFF:
+            success = setPhysicalState(false);
+            break;
+            
+        case LEDState::ON:
+            success = setPhysicalState(true);
+            break;
+            
+        case LEDState::BLINK:
+        case LEDState::PULSE:
+        case LEDState::PATTERN:
+            // These require pattern management
+            LOG_WARN("ParkingLED", "Pattern states require startPattern() method");
+            return false;
+    }
+    
+    if (success) {
+        current_state_ = state;
+        stats_.state_changes++;
+        last_operation_time_us_ = micros();
+        
+        // Check response time
+        if (!validateResponseTime(last_operation_time_us_)) {
+            stats_.response_violations++;
+            if (response_time_callback_) {
+                response_time_callback_(last_operation_time_us_ - start_time);
+            }
+        }
+        
+        logStateChange(old_state, state);
+    } else {
+        LOG_ERROR("ParkingLED", "Failed to set LED state");
+        REPORT_ERROR(Core::ErrorCode::LED_FAILURE, Core::ErrorSeverity::ERROR,
+                    "ParkingLED", "State change failed");
+    }
+    
+    return success;
+}
+
+bool ParkingLEDController::setBrightness(LEDBrightness brightness) {
+    // Parking LED typically operates at full brightness for maximum visibility
+    // For dimming support, would need PWM implementation
+    current_brightness_ = brightness;
+    
+    if (brightness == LEDBrightness::OFF) {
+        return setState(LEDState::OFF);
+    } else {
+        // For now, any non-zero brightness is treated as full brightness
+        if (current_state_ == LEDState::ON) {
+            return setPhysicalState(true);
+        }
+    }
+    
+    return true;
+}
+
+bool ParkingLEDController::startPattern(const LEDPattern& pattern) {
+    TIMED_OPERATION("ParkingLED::startPattern");
+    
+    current_pattern_ = pattern;
+    pattern_active_ = true;
+    pattern_start_time_us_ = micros();
+    pattern_cycle_start_us_ = pattern_start_time_us_;
+    pattern_cycles_completed_ = 0;
+    pattern_led_on_ = false;
+    current_state_ = LEDState::PATTERN;
+    
+    // Start pattern immediately
+    if (pattern.on_time_ms > 0) {
+        setPhysicalState(true);
+        pattern_led_on_ = true;
+    }
+    
+    StaticJsonDocument<256> patternDoc;
+    patternDoc["on_time_ms"] = pattern.on_time_ms;
+    patternDoc["off_time_ms"] = pattern.off_time_ms;
+    patternDoc["repeat_count"] = pattern.repeat_count;
+    patternDoc["brightness"] = (int)pattern.brightness;
+    LOG_INFO("ParkingLED", "Pattern started", patternDoc.as<JsonObject>());
+    
+    return true;
+}
+
+bool ParkingLEDController::stop() {
+    TIMED_OPERATION("ParkingLED::stop");
+    
+    pattern_active_ = false;
+    current_state_ = LEDState::OFF;
+    bool success = setPhysicalState(false);
+    
+    if (success) {
+        last_operation_time_us_ = micros();
+        LOG_INFO("ParkingLED", "LED stopped");
+    }
+    
+    return success;
+}
+
+void ParkingLEDController::update() {
+    unsigned long current_time = micros();
+    
+    // Update pattern state machine
+    if (pattern_active_) {
+        updatePattern();
+    }
+    
+    // Update health status periodically
+    if (current_time - last_health_check_us_ > HEALTH_CHECK_INTERVAL_US) {
+        updateHealth();
+        last_health_check_us_ = current_time;
+    }
+}
+
+void ParkingLEDController::resetStats() {
+    stats_ = LEDStats();
+    LOG_INFO("ParkingLED", "Statistics reset");
+}
+
+String ParkingLEDController::getDiagnosticData() const {
+    StaticJsonDocument<512> diagnosticDoc;
+    
+    diagnosticDoc["led"]["pin"] = pin_;
+    diagnosticDoc["led"]["active_high"] = active_high_;
+    diagnosticDoc["led"]["current_state"] = (int)current_state_;
+    diagnosticDoc["led"]["brightness"] = (int)current_brightness_;
+    diagnosticDoc["led"]["physical_state"] = current_physical_state_;
+    diagnosticDoc["led"]["health"] = (int)led_health_;
+    
+    diagnosticDoc["pattern"]["active"] = pattern_active_;
+    if (pattern_active_) {
+        diagnosticDoc["pattern"]["on_time_ms"] = current_pattern_.on_time_ms;
+        diagnosticDoc["pattern"]["off_time_ms"] = current_pattern_.off_time_ms;
+        diagnosticDoc["pattern"]["repeat_count"] = current_pattern_.repeat_count;
+        diagnosticDoc["pattern"]["cycles_completed"] = pattern_cycles_completed_;
+    }
+    
+    diagnosticDoc["stats"]["total_operations"] = stats_.total_operations;
+    diagnosticDoc["stats"]["pattern_cycles"] = stats_.pattern_cycles;
+    diagnosticDoc["stats"]["state_changes"] = stats_.state_changes;
+    diagnosticDoc["stats"]["response_violations"] = stats_.response_violations;
+    diagnosticDoc["stats"]["last_update_us"] = stats_.last_update_us;
+    
+    // Calculate performance metrics
+    if (stats_.total_operations > 0) {
+        float response_compliance = 1.0f - ((float)stats_.response_violations / stats_.total_operations);
+        diagnosticDoc["metrics"]["response_compliance_percent"] = response_compliance * 100.0f;
+    }
+    
+    String result;
+    serializeJson(diagnosticDoc, result);
+    return result;
+}
+
+bool ParkingLEDController::performSelfTest() {
+    TIMED_OPERATION("ParkingLED::performSelfTest");
+    
+    LOG_INFO("ParkingLED", "Starting self-test");
+    
+    // Save current state
+    bool original_state = current_physical_state_;
+    
+    // Test ON
+    if (!setPhysicalState(true)) {
+        LOG_ERROR("ParkingLED", "Self-test failed: Cannot turn LED ON");
+        return false;
+    }
+    
+    delay(SELF_TEST_DURATION_MS / 2);
+    
+    // Test OFF
+    if (!setPhysicalState(false)) {
+        LOG_ERROR("ParkingLED", "Self-test failed: Cannot turn LED OFF");
+        return false;
+    }
+    
+    delay(SELF_TEST_DURATION_MS / 2);
+    
+    // Restore original state
+    setPhysicalState(original_state);
+    
+    LOG_INFO("ParkingLED", "Self-test completed successfully");
+    return true;
+}
+
+bool ParkingLEDController::showParkingDetected(bool show_parking) {
+    TIMED_OPERATION("ParkingLED::showParkingDetected");
+    
+    unsigned long start_time = micros();
+    bool success = setPhysicalState(show_parking);
+    
+    if (success) {
+        current_state_ = show_parking ? LEDState::ON : LEDState::OFF;
+        stats_.total_operations++;
+        stats_.state_changes++;
+        last_operation_time_us_ = micros();
+        
+        // Validate response time for parking detection (critical path)
+        if (!validateResponseTime(last_operation_time_us_)) {
+            stats_.response_violations++;
+            LOG_WARN("ParkingLED", "Parking detection response time violation");
+            if (response_time_callback_) {
+                response_time_callback_(last_operation_time_us_ - start_time);
+            }
+        }
+        
+        StaticJsonDocument<128> parkingDoc;
+        parkingDoc["parking_detected"] = show_parking;
+        parkingDoc["response_time_us"] = last_operation_time_us_ - start_time;
+        LOG_INFO("ParkingLED", "Parking status updated", parkingDoc.as<JsonObject>());
+    }
+    
+    return success;
+}
+
+void ParkingLEDController::forceState(bool on) {
+    setPhysicalState(on);
+    current_state_ = on ? LEDState::ON : LEDState::OFF;
+    pattern_active_ = false;
+}
+
+void ParkingLEDController::onResponseTimeViolation(std::function<void(unsigned long)> callback) {
+    response_time_callback_ = callback;
+}
+
+void ParkingLEDController::updateHealth() {
+    if (stats_.total_operations < MIN_OPERATIONS_FOR_HEALTH) {
+        led_health_ = LEDHealth::WARNING;
+        return;
+    }
+    
+    // Calculate response time compliance
+    float response_compliance = 1.0f - ((float)stats_.response_violations / stats_.total_operations);
+    
+    if (response_compliance >= MIN_RESPONSE_COMPLIANCE) {
+        led_health_ = LEDHealth::HEALTHY;
+    } else if (response_compliance >= 0.95f) {
+        led_health_ = LEDHealth::WARNING;
+    } else {
+        led_health_ = LEDHealth::ERROR;
+        REPORT_ERROR(Core::ErrorCode::LED_FAILURE, Core::ErrorSeverity::WARNING,
+                    "ParkingLED", "Response time compliance degraded");
+    }
+    
+    // Report health changes
+    static LEDHealth last_reported_health = LEDHealth::OFFLINE;
+    if (led_health_ != last_reported_health) {
+        StaticJsonDocument<128> healthDoc;
+        healthDoc["old_health"] = (int)last_reported_health;
+        healthDoc["new_health"] = (int)led_health_;
+        healthDoc["response_compliance"] = response_compliance;
+        LOG_INFO("ParkingLED", "Health status changed", healthDoc.as<JsonObject>());
+        last_reported_health = led_health_;
+    }
+}
+
+bool ParkingLEDController::setPhysicalState(bool on) {
+    unsigned long start_time = micros();
+    
+    // Set GPIO state based on active high/low configuration
+    digitalWrite(pin_, (on && active_high_) || (!on && !active_high_) ? HIGH : LOW);
+    current_physical_state_ = on;
+    
+    // Verify response time
+    unsigned long response_time = micros() - start_time;
+    if (response_time > MAX_RESPONSE_TIME_US) {
+        LOG_WARN("ParkingLED", "GPIO response time exceeded threshold");
+        return false;
+    }
+    
+    return true;
+}
+
+bool ParkingLEDController::validateResponseTime(unsigned long operation_time_us) {
+    if (last_operation_time_us_ == 0) {
+        return true; // First operation
+    }
+    
+    unsigned long response_time = operation_time_us - last_operation_time_us_;
+    return response_time <= MAX_RESPONSE_TIME_US;
+}
+
+void ParkingLEDController::updatePattern() {
+    if (!pattern_active_) {
+        return;
+    }
+    
+    unsigned long current_time = micros();
+    unsigned long cycle_elapsed = current_time - pattern_cycle_start_us_;
+    
+    unsigned long on_time_us = current_pattern_.on_time_ms * 1000;
+    unsigned long off_time_us = current_pattern_.off_time_ms * 1000;
+    unsigned long total_cycle_time_us = on_time_us + off_time_us;
+    
+    if (total_cycle_time_us == 0) {
+        // Static pattern (continuous on or off)
+        bool target_state = (current_pattern_.on_time_ms > 0);
+        if (current_physical_state_ != target_state) {
+            setPhysicalState(target_state);
+        }
+        return;
+    }
+    
+    // Determine if LED should be on or off in current cycle
+    bool should_be_on = (cycle_elapsed < on_time_us);
+    
+    if (should_be_on != pattern_led_on_) {
+        setPhysicalState(should_be_on);
+        pattern_led_on_ = should_be_on;
+    }
+    
+    // Check if cycle is complete
+    if (cycle_elapsed >= total_cycle_time_us) {
+        pattern_cycles_completed_++;
+        stats_.pattern_cycles++;
+        pattern_cycle_start_us_ = current_time;
+        
+        // Check if pattern should stop (finite repeat count)
+        if (current_pattern_.repeat_count > 0 && pattern_cycles_completed_ >= current_pattern_.repeat_count) {
+            pattern_active_ = false;
+            setPhysicalState(false);
+            current_state_ = LEDState::OFF;
+            
+            LOG_INFO("ParkingLED", "Pattern completed");
+        }
+    }
+}
+
+void ParkingLEDController::logStateChange(LEDState old_state, LEDState new_state) {
+    StaticJsonDocument<128> stateDoc;
+    stateDoc["old_state"] = (int)old_state;
+    stateDoc["new_state"] = (int)new_state;
+    stateDoc["physical_state"] = current_physical_state_;
+    stateDoc["timestamp_us"] = last_operation_time_us_;
+    LOG_INFO("ParkingLED", "State changed", stateDoc.as<JsonObject>());
+}
+
+} // namespace Actuators

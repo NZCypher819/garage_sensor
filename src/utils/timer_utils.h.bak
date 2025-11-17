@@ -1,0 +1,92 @@
+#pragma once
+
+#include <Arduino.h>
+#include <map>
+
+/**
+ * Timer Utilities
+ * Constitutional Requirements: <100ms response time
+ * 
+ * Provides precise timing functions for time-critical operations
+ * Supports microsecond precision for accurate performance measurement
+ */
+
+namespace Utils {
+
+class Timer {
+public:
+    Timer();
+    
+    // Start timing measurement
+    void start();
+    
+    // Get elapsed time in microseconds
+    unsigned long getElapsedMicros() const;
+    
+    // Get elapsed time in milliseconds
+    unsigned long getElapsedMillis() const;
+    
+    // Check if timeout has occurred
+    bool hasTimeout(unsigned long timeoutMs) const;
+    
+    // Reset timer
+    void reset();
+    
+private:
+    unsigned long start_time_us_;
+    bool running_;
+};
+
+class PerformanceMonitor {
+public:
+    static PerformanceMonitor& getInstance();
+    
+    // Track operation timing
+    void recordOperation(const String& operation, unsigned long durationUs);
+    
+    // Get performance statistics
+    String getPerformanceReport() const;
+    
+    // Clear performance data
+    void clearMetrics();
+    
+    // Constitutional requirement validation
+    bool validateResponseTime(const String& operation, unsigned long durationUs);
+    
+private:
+    PerformanceMonitor();
+    static PerformanceMonitor* instance_;
+    
+    struct OperationStats {
+        unsigned long count;
+        unsigned long totalTimeUs;
+        unsigned long maxTimeUs;
+        unsigned long minTimeUs;
+        unsigned long violationsCount; // Times > 100ms
+    };
+    
+    std::map<String, OperationStats> stats_;
+    
+    static const unsigned long MAX_RESPONSE_TIME_US = 100000; // 100ms in microseconds
+};
+
+// Utility functions for timing
+unsigned long micros64(); // 64-bit microsecond counter (if available)
+void delayMicroseconds(unsigned int us);
+void preciseDelay(unsigned long us);
+
+// Performance measurement helper class
+class ScopedTimer {
+public:
+    ScopedTimer(const String& operationName);
+    ~ScopedTimer();
+    
+private:
+    String operation_name_;
+    Timer timer_;
+};
+
+} // namespace Utils
+
+// Convenience macro for automatic timing
+#define TIMED_OPERATION(name) Utils::ScopedTimer _timer(name)

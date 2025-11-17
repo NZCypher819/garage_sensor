@@ -1,0 +1,121 @@
+name: Bug Report
+description: Report a bug or unexpected behavior
+title: "[BUG] "
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug! Please fill out the information below to help us investigate.
+        
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      description: Which component is affected?
+      options:
+        - Parking Detection
+        - LED Status Indication
+        - Power Management
+        - OTA Updates
+        - WiFi Connectivity
+        - Hardware Integration
+        - Other
+    validations:
+      required: true
+      
+  - type: textarea
+    id: description
+    attributes:
+      label: Bug Description
+      description: A clear description of what the bug is
+      placeholder: Describe the unexpected behavior...
+    validations:
+      required: true
+      
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to Reproduce
+      description: Step-by-step instructions to reproduce the issue
+      placeholder: |
+        1. Go to...
+        2. Click on...
+        3. See error...
+    validations:
+      required: true
+      
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behavior
+      description: What should happen instead?
+    validations:
+      required: true
+      
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual Behavior
+      description: What actually happened?
+    validations:
+      required: true
+      
+  - type: dropdown
+    id: firmware_version
+    attributes:
+      label: Firmware Version
+      description: What firmware version are you running?
+      options:
+        - "v1.0.0 (latest)"
+        - "v1.0.0-beta.1"
+        - "Development build"
+        - "Other (specify in additional context)"
+    validations:
+      required: true
+      
+  - type: dropdown
+    id: hardware
+    attributes:
+      label: Hardware
+      description: What hardware are you using?
+      options:
+        - "ESP32-S3-NANO (recommended)"
+        - "ESP32-S3-DevKitC-1"
+        - "Other ESP32-S3 board"
+        - "Custom hardware"
+    validations:
+      required: true
+      
+  - type: checkboxes
+    id: environment
+    attributes:
+      label: Environment
+      description: Check all that apply
+      options:
+        - label: WiFi connected
+        - label: OTA updates enabled
+        - label: Power saving mode enabled
+        - label: Debug logging enabled
+        - label: Custom configuration
+        
+  - type: textarea
+    id: logs
+    attributes:
+      label: Serial Output / Logs
+      description: |
+        Please include relevant serial monitor output or logs.
+        Tip: You can get detailed logs with `pio device monitor`
+      render: shell
+      
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional Context
+      description: |
+        Any other context about the problem:
+        - Power supply specifications
+        - E3JK-RR11 sensor model/configuration
+        - Environmental conditions
+        - Network configuration
+        - Custom modifications

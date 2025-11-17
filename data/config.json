@@ -1,0 +1,59 @@
+{
+  "device_id": "garage-sensor-01",
+  "wifi": {
+    "ssid": "YOUR_NETWORK_NAME",
+    "password": "YOUR_NETWORK_PASSWORD",
+    "timeout_ms": 30000,
+    "retry_attempts": 3
+  },
+  "sensor": {
+    "debounce_ms": 50,
+    "validation_enabled": true,
+    "false_positive_threshold": 3
+  },
+  "leds": {
+    "parking": {
+      "brightness_active": 255,
+      "brightness_dim": 0
+    },
+    "status": {
+      "brightness_normal": 64,
+      "brightness_dim": 16,
+      "blink_startup_count": 2,
+      "blink_startup_duration_ms": 200,
+      "blink_error_duration_ms": 100
+    }
+  },
+  "power": {
+    "sleep_timeout_ms": 30000,
+    "target_idle_ma": 10,
+    "measurement_enabled": true
+  },
+  "timing": {
+    "response_target_ms": 100,
+    "measurement_samples": 1000
+  },
+  "ota": {
+    "server": "https://github.com/your-username/garage-sensorv2/releases",
+    "check_interval_hours": 24,
+    "security": {
+      "https_enabled": true,
+      "cert_validation": true,
+      "download_timeout_seconds": 300,
+      "integrity_check_enabled": true,
+      "rollback_enabled": true
+    }
+  },
+  "logging": {
+    "level": "info",
+    "structured": true,
+    "telemetry_enabled": false,
+    "local_storage_enabled": true,
+    "max_log_size_kb": 100
+  },
+  "health": {
+    "check_interval_ms": 5000,
+    "status_update_interval_ms": 60000,
+    "watchdog_enabled": true
+  }
+}

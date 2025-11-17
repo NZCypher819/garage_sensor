@@ -1,0 +1,173 @@
+#pragma once
+
+#include "led_controllers.h"
+#include "../diagnostics/logger.h"
+#include "../utils/timer_utils.h"
+#include "../diagnostics/error_handler.h"
+#include <functional>
+
+/**
+ * Parking LED Controller
+ * Constitutional Principle I: Reliability-First
+ * 
+ * High-speed LED control for parking detection feedback:
+ * - <50ms response time (exceeds constitutional <100ms requirement)
+ * - Direct ON/OFF control for immediate visual feedback
+ * - Health monitoring and error detection
+ * - GPIO 8 hardware interface per plan.md
+ */
+
+namespace Actuators {
+
+/**
+ * Parking LED Controller Class
+ * 
+ * Manages the primary LED that indicates parking position detection.
+ * Optimized for fastest possible response to beam break events.
+ */
+class ParkingLEDController : public BaseLEDController {
+public:
+    /**
+     * Constructor
+     * @param pin GPIO pin for parking LED (default GPIO 8 per plan.md)
+     * @param active_high true if LED is active high, false if active low
+     */
+    explicit ParkingLEDController(int pin = 8, bool active_high = true);
+    
+    /**
+     * Initialize LED hardware and GPIO
+     * @return true if initialization successful
+     */
+    bool begin() override;
+    
+    /**
+     * Set LED state with fast response
+     * @param state Target LED state (ON/OFF for parking LED)
+     * @return true if state change successful
+     */
+    bool setState(LEDState state) override;
+    
+    /**
+     * Set LED brightness (parking LED typically full brightness only)
+     * @param brightness Target brightness level
+     * @return true if brightness change successful
+     */
+    bool setBrightness(LEDBrightness brightness) override;
+    
+    /**
+     * Start LED pattern (limited patterns for parking LED)
+     * @param pattern LED pattern to execute
+     * @return true if pattern started successfully
+     */
+    bool startPattern(const LEDPattern& pattern) override;
+    
+    /**
+     * Stop LED and turn off
+     * @return true if stop successful
+     */
+    bool stop() override;
+    
+    /**
+     * Update LED state machine
+     * Called from main loop for pattern management
+     */
+    void update() override;
+    
+    /**
+     * Get LED health status
+     * @return Current health state
+     */
+    LEDHealth getHealth() const override { return led_health_; }
+    
+    /**
+     * Get LED performance statistics
+     * @return Statistics structure
+     */
+    LEDStats getStats() const override { return stats_; }
+    
+    /**
+     * Reset performance statistics
+     */
+    void resetStats() override;
+    
+    /**
+     * Get diagnostic data for monitoring
+     * @return JSON diagnostic information
+     */
+    String getDiagnosticData() const override;
+    
+    /**
+     * Perform LED self-test
+     * @return true if self-test passed
+     */
+    bool performSelfTest() override;
+    
+    // Parking LED specific methods
+    
+    /**
+     * Fast parking indication - optimized for speed
+     * @param show_parking true to show parking detected, false to clear
+     * @return true if operation successful
+     */
+    bool showParkingDetected(bool show_parking);
+    
+    /**
+     * Get current LED physical state
+     * @return true if LED is currently illuminated
+     */
+    bool isOn() const { return current_physical_state_; }
+    
+    /**
+     * Force LED state for testing
+     * @param on true to force on, false to force off
+     */
+    void forceState(bool on);
+    
+    /**
+     * Set response time monitoring callback
+     * @param callback Function called when response time violations occur
+     */
+    void onResponseTimeViolation(std::function<void(unsigned long response_time_us)> callback);
+
+private:
+    // Configuration
+    int pin_;
+    bool active_high_;
+    
+    // State tracking
+    LEDState current_state_;
+    LEDBrightness current_brightness_;
+    bool current_physical_state_;
+    LEDHealth led_health_;
+    
+    // Pattern management
+    LEDPattern current_pattern_;
+    bool pattern_active_;
+    unsigned long pattern_start_time_us_;
+    unsigned long pattern_cycle_start_us_;
+    unsigned int pattern_cycles_completed_;
+    bool pattern_led_on_;
+    
+    // Performance monitoring
+    LEDStats stats_;
+    unsigned long last_operation_time_us_;
+    unsigned long last_health_check_us_;
+    
+    // Callbacks
+    std::function<void(unsigned long)> response_time_callback_;
+    
+    // Internal methods
+    void updateHealth();
+    bool setPhysicalState(bool on);
+    bool validateResponseTime(unsigned long operation_time_us);
+    void updatePattern();
+    void logStateChange(LEDState old_state, LEDState new_state);
+    
+    // Constants
+    static const unsigned long SELF_TEST_DURATION_MS = 500;  // 500ms self-test blink
+    static const unsigned long PATTERN_PRECISION_US = 5000; // 5ms pattern timing precision
+    static const int MIN_OPERATIONS_FOR_HEALTH = 5;         // Minimum ops before health assessment
+    static constexpr float MIN_RESPONSE_COMPLIANCE = 0.99f;     // 99% response time compliance required
+};
+
+} // namespace Actuators

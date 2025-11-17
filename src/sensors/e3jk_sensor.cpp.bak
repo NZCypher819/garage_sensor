@@ -1,0 +1,337 @@
+#include "e3jk_sensor.h"
+
+/**
+ * E3JK-RR11 IR Beam Sensor Driver Implementation
+ * Constitutional Principle I: Reliability-First
+ * 
+ * High-precision beam break detection with <100ms response time
+ * Comprehensive validation, debouncing, and health monitoring
+ */
+
+namespace Sensors {
+
+// Static instance pointer for interrupt handling
+static E3JKSensor* interrupt_instance = nullptr;
+
+// Interrupt service routine wrapper
+void IRAM_ATTR sensorInterruptHandler() {
+    if (interrupt_instance) {
+        interrupt_instance->handleInterrupt();
+    }
+}
+
+E3JKSensor::E3JKSensor(int pin, bool activeState) 
+    : pin_(pin), active_state_(activeState), enabled_(false), 
+      debounce_time_ms_(DEFAULT_DEBOUNCE_MS), current_state_(BeamState::UNKNOWN), 
+      last_validated_state_(BeamState::UNKNOWN), sensor_health_(SensorHealth::OFFLINE),
+      last_change_time_us_(0), last_health_check_us_(0) {
+    
+    resetStats();
+    StaticJsonDocument<256> initDoc;
+    initDoc["pin"] = pin_;
+    initDoc["active_state"] = active_state_;
+    LOG_INFO("E3JKSensor", "Sensor initialized", initDoc.as<JsonObject>());
+}
+
+bool E3JKSensor::begin() {
+    TIMED_OPERATION("E3JKSensor::begin");
+    
+    // Configure GPIO pin
+    pinMode(pin_, INPUT_PULLUP);
+    
+    // Set up interrupt instance
+    if (interrupt_instance == nullptr) {
+        interrupt_instance = this;
+    } else {
+        LOG_ERROR("E3JKSensor", "Multiple sensor instances not supported");
+        REPORT_ERROR(Core::ErrorCode::SENSOR_FAILURE, Core::ErrorSeverity::ERROR, 
+                    "E3JKSensor", "Multiple sensor instances");
+        return false;
+    }
+    
+    // Read initial state
+    current_state_ = readRawState();
+    last_validated_state_ = current_state_;
+    last_change_time_us_ = micros();
+    last_health_check_us_ = micros();
+    
+    // Attach interrupt for real-time detection
+    attachInterrupt(digitalPinToInterrupt(pin_), sensorInterruptHandler, CHANGE);
+    
+    // Enable sensor monitoring
+    enabled_ = true;
+    sensor_health_ = SensorHealth::HEALTHY;
+    
+    // Perform initial self-test
+    if (!performSelfTest()) {
+        LOG_WARN("E3JKSensor", "Self-test failed during initialization");
+        sensor_health_ = SensorHealth::WARNING;
+    }
+    
+    StaticJsonDocument<256> initDoc;
+    initDoc["pin"] = pin_;
+    initDoc["initial_state"] = (int)current_state_;
+    initDoc["health"] = (int)sensor_health_;
+    LOG_INFO("E3JKSensor", "Sensor initialization complete", initDoc.as<JsonObject>());
+    
+    return true;
+}
+
+SensorReading E3JKSensor::readSensor() {
+    TIMED_OPERATION("E3JKSensor::readSensor");
+    
+    SensorReading reading;
+    unsigned long read_time = micros();
+    
+    stats_.total_readings++;
+    
+    if (!enabled_) {
+        reading.state = BeamState::UNKNOWN;
+        reading.timestamp_us = read_time;
+        reading.valid = false;
+        reading.health = SensorHealth::OFFLINE;
+        return reading;
+    }
+    
+    // Use cached state from interrupt handler for fast response
+    reading.state = current_state_;
+    reading.timestamp_us = read_time;
+    reading.health = sensor_health_;
+    
+    // Validate reading timing
+    reading.valid = checkResponseTime(read_time);
+    if (reading.valid) {
+        stats_.valid_readings++;
+        stats_.last_reading_time_us = read_time;
+    } else {
+        stats_.response_time_violations++;
+        LOG_WARN("E3JKSensor", "Response time violation detected");
+    }
+    
+    // Update health status periodically
+    if (read_time - last_health_check_us_ > HEALTH_CHECK_INTERVAL_US) {
+        updateHealth();
+        last_health_check_us_ = read_time;
+    }
+    
+    return reading;
+}
+
+void E3JKSensor::onStateChange(StateChangeCallback callback) {
+    state_callbacks_.push_back(callback);
+    LOG_INFO("E3JKSensor", "State change callback registered");
+}
+
+void E3JKSensor::setDebounceTime(unsigned long debounce_ms) {
+    debounce_time_ms_ = debounce_ms;
+    
+    StaticJsonDocument<128> debounceDoc;
+    debounceDoc["debounce_ms"] = debounce_ms;
+    LOG_INFO("E3JKSensor", "Debounce time updated", debounceDoc.as<JsonObject>());
+}
+
+void E3JKSensor::setEnabled(bool enabled) {
+    enabled_ = enabled;
+    
+    if (!enabled) {
+        current_state_ = BeamState::UNKNOWN;
+        sensor_health_ = SensorHealth::OFFLINE;
+    }
+    
+    StaticJsonDocument<128> enabledDoc;
+    enabledDoc["enabled"] = enabled;
+    LOG_INFO("E3JKSensor", "Sensor enable state changed", enabledDoc.as<JsonObject>());
+}
+
+void E3JKSensor::resetStats() {
+    stats_ = SensorStats();
+    LOG_INFO("E3JKSensor", "Statistics reset");
+}
+
+bool E3JKSensor::performSelfTest() {
+    TIMED_OPERATION("E3JKSensor::performSelfTest");
+    
+    if (!enabled_) {
+        return false;
+    }
+    
+    // Read sensor multiple times to check consistency
+    BeamState initial_state = readRawState();
+    delay(10);
+    BeamState second_state = readRawState();
+    delay(10);
+    BeamState third_state = readRawState();
+    
+    // Check for reasonable consistency (allowing for one transient reading)
+    bool consistent = (initial_state == second_state) || 
+                     (initial_state == third_state) || 
+                     (second_state == third_state);
+    
+    if (!consistent) {
+        LOG_ERROR("E3JKSensor", "Self-test failed - inconsistent readings");
+        REPORT_ERROR(Core::ErrorCode::SENSOR_FAILURE, Core::ErrorSeverity::WARNING,
+                    "E3JKSensor", "Self-test inconsistent readings");
+        return false;
+    }
+    
+    StaticJsonDocument<128> selfTestDoc;
+    selfTestDoc["result"] = "pass";
+    selfTestDoc["state"] = (int)initial_state;
+    LOG_INFO("E3JKSensor", "Self-test completed", selfTestDoc.as<JsonObject>());
+    
+    return true;
+}
+
+String E3JKSensor::getDiagnosticData() const {
+    StaticJsonDocument<512> diagnosticDoc;
+    
+    diagnosticDoc["sensor"]["pin"] = pin_;
+    diagnosticDoc["sensor"]["enabled"] = enabled_;
+    diagnosticDoc["sensor"]["active_state"] = active_state_;
+    diagnosticDoc["sensor"]["debounce_ms"] = debounce_time_ms_;
+    
+    diagnosticDoc["state"]["current"] = (int)current_state_;
+    diagnosticDoc["state"]["last_validated"] = (int)last_validated_state_;
+    diagnosticDoc["state"]["health"] = (int)sensor_health_;
+    diagnosticDoc["state"]["last_change_us"] = last_change_time_us_;
+    
+    diagnosticDoc["stats"]["total_readings"] = stats_.total_readings;
+    diagnosticDoc["stats"]["valid_readings"] = stats_.valid_readings;
+    diagnosticDoc["stats"]["state_changes"] = stats_.state_changes;
+    diagnosticDoc["stats"]["debounce_rejections"] = stats_.debounce_rejections;
+    diagnosticDoc["stats"]["response_violations"] = stats_.response_time_violations;
+    diagnosticDoc["stats"]["last_reading_us"] = stats_.last_reading_time_us;
+    
+    // Calculate reliability metrics
+    if (stats_.total_readings > 0) {
+        float reliability = (float)stats_.valid_readings / stats_.total_readings * 100.0;
+        diagnosticDoc["metrics"]["reliability_percent"] = reliability;
+    }
+    
+    String result;
+    serializeJson(diagnosticDoc, result);
+    return result;
+}
+
+void E3JKSensor::handleInterrupt() {
+    unsigned long interrupt_time = micros();
+    BeamState new_state = readRawState();
+    
+    // Validate state change with debouncing
+    if (validateStateChange(new_state, interrupt_time)) {
+        BeamState old_state = current_state_;
+        current_state_ = new_state;
+        last_validated_state_ = new_state;
+        last_change_time_us_ = interrupt_time;
+        
+        stats_.state_changes++;
+        
+        // Notify registered callbacks
+        notifyStateChange(old_state, new_state, interrupt_time);
+        
+        // Check response time compliance
+        if (!checkResponseTime(interrupt_time)) {
+            stats_.response_time_violations++;
+        }
+    } else {
+        stats_.debounce_rejections++;
+    }
+}
+
+void E3JKSensor::updateHealth() {
+    unsigned long current_time = micros();
+    
+    // Check if sensor has been responsive
+    if (current_time - stats_.last_reading_time_us > SENSOR_TIMEOUT_US) {
+        sensor_health_ = SensorHealth::OFFLINE;
+        REPORT_ERROR(Core::ErrorCode::SENSOR_FAILURE, Core::ErrorSeverity::ERROR,
+                    "E3JKSensor", "Sensor timeout - no readings");
+        return;
+    }
+    
+    // Check if we have enough readings for health assessment
+    if (stats_.total_readings < MIN_READINGS_FOR_HEALTH) {
+        sensor_health_ = SensorHealth::WARNING;
+        return;
+    }
+    
+    // Calculate reliability metrics
+    float reliability = (float)stats_.valid_readings / stats_.total_readings;
+    float response_compliance = 1.0f - ((float)stats_.response_time_violations / stats_.total_readings);
+    
+    if (reliability > 0.95f && response_compliance > 0.99f) {
+        sensor_health_ = SensorHealth::HEALTHY;
+    } else if (reliability > 0.85f && response_compliance > 0.95f) {
+        sensor_health_ = SensorHealth::WARNING;
+    } else {
+        sensor_health_ = SensorHealth::ERROR;
+        REPORT_ERROR(Core::ErrorCode::SENSOR_FAILURE, Core::ErrorSeverity::WARNING,
+                    "E3JKSensor", "Sensor reliability degraded");
+    }
+    
+    // Report health status changes
+    static SensorHealth last_reported_health = SensorHealth::OFFLINE;
+    if (sensor_health_ != last_reported_health) {
+        StaticJsonDocument<256> healthDoc;
+        healthDoc["old_health"] = (int)last_reported_health;
+        healthDoc["new_health"] = (int)sensor_health_;
+        healthDoc["reliability"] = reliability;
+        healthDoc["response_compliance"] = response_compliance;
+        LOG_INFO("E3JKSensor", "Health status changed", healthDoc.as<JsonObject>());
+        last_reported_health = sensor_health_;
+    }
+}
+
+bool E3JKSensor::validateStateChange(BeamState newState, unsigned long timestamp_us) {
+    // Check if enough time has passed for debouncing
+    if (timestamp_us - last_change_time_us_ < (debounce_time_ms_ * 1000)) {
+        return false;
+    }
+    
+    // State must be different from current state
+    if (newState == current_state_) {
+        return false;
+    }
+    
+    return true;
+}
+
+void E3JKSensor::notifyStateChange(BeamState oldState, BeamState newState, unsigned long timestamp_us) {
+    // Log the state change
+    StaticJsonDocument<256> stateDoc;
+    stateDoc["old_state"] = (int)oldState;
+    stateDoc["new_state"] = (int)newState;
+    stateDoc["timestamp_us"] = timestamp_us;
+    stateDoc["response_time_us"] = timestamp_us - last_change_time_us_;
+    LOG_INFO("E3JKSensor", "Beam state changed", stateDoc.as<JsonObject>());
+    
+    // Call registered callbacks
+    for (auto& callback : state_callbacks_) {
+        if (callback) {
+            callback(oldState, newState, timestamp_us);
+        }
+    }
+}
+
+BeamState E3JKSensor::readRawState() {
+    int reading = digitalRead(pin_);
+    
+    // Convert raw reading to beam state based on active state configuration
+    if (active_state_) {
+        return (reading == HIGH) ? BeamState::CLEAR : BeamState::BLOCKED;
+    } else {
+        return (reading == LOW) ? BeamState::CLEAR : BeamState::BLOCKED;
+    }
+}
+
+bool E3JKSensor::checkResponseTime(unsigned long reading_time_us) {
+    // For very first reading, consider it valid
+    if (last_change_time_us_ == 0) {
+        return true;
+    }
+    
+    unsigned long response_time = reading_time_us - last_change_time_us_;
+    return response_time <= MAX_RESPONSE_TIME_US;
+}
+
+} // namespace Sensors
