@@ -7,11 +7,11 @@ namespace Config {
 
 // Build constants implementation
 namespace BuildConstants {
-    const char* VERSION = FIRMWARE_VERSION;
-    const char* BUILD_DATE = BUILD_DATE;
-    const char* BUILD_TIME = BUILD_TIME;
-    const char* GIT_COMMIT = GIT_COMMIT;
-    const char* GIT_BRANCH = GIT_BRANCH;
+    const char* VERSION = "1.0.0";  // Will be updated by CI/CD
+    const char* BUILD_DATE = "2025-11-18";
+    const char* BUILD_TIME = "00:00:00";
+    const char* GIT_COMMIT = "4239c7a";  // Current commit
+    const char* GIT_BRANCH = "001-parking-sensor";
     const char* PLATFORM = "ESP32-S3";
     #ifdef DEBUG
     const bool DEBUG_BUILD = true;
