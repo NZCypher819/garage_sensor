@@ -460,8 +460,8 @@ void checkForOTAUpdates() {
     
     // Configure update parameters from .ota_config.json or defaults
     Network::OTAHandler::UpdateConfig config;
-    config.repo_owner = "your-github-username";  // TODO: Load from .ota_config.json
-    config.repo_name = "garage-sensorv2";        // TODO: Load from .ota_config.json
+    config.repo_owner = "NZCypher819";         // Updated with actual username
+    config.repo_name = "garage_sensor";        // Updated with actual repo name
     config.target_version = "latest";            // Check for latest release
     config.auto_install = false;                 // Manual approval required for safety
     config.backup_current = true;                // Always backup before update

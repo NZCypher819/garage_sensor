@@ -1,7 +1,7 @@
 {
   "github": {
-    "owner": "your-github-username",
-    "repo": "garage-sensorv2",
+    "owner": "NZCypher819",
+    "repo": "garage_sensor",
     "api_base_url": "https://api.github.com",
     "releases_endpoint": "/repos/{owner}/{repo}/releases",
     "download_timeout_seconds": 300

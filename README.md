@@ -2,9 +2,9 @@
 
 🚗 **ESP32-S3-NANO based parking sensor with secure OTA updates**
 
-[![Build and Release](https://github.com/your-username/garage-sensorv2/actions/workflows/build-and-release.yml/badge.svg)](https://github.com/your-username/garage-sensorv2/actions/workflows/build-and-release.yml)
-[![Security Scan](https://github.com/your-username/garage-sensorv2/actions/workflows/security-scan.yml/badge.svg)](https://github.com/your-username/garage-sensorv2/actions/workflows/security-scan.yml)
-[![Test Coverage](https://codecov.io/gh/your-username/garage-sensorv2/branch/main/graph/badge.svg)](https://codecov.io/gh/your-username/garage-sensorv2)
+[![Build and Release](https://github.com/NZCypher819/garage_sensor/actions/workflows/build-and-release.yml/badge.svg)](https://github.com/NZCypher819/garage_sensor/actions/workflows/build-and-release.yml)
+[![Security Scan](https://github.com/NZCypher819/garage_sensor/actions/workflows/security-scan.yml/badge.svg)](https://github.com/NZCypher819/garage_sensor/actions/workflows/security-scan.yml)
+[![Test Coverage](https://codecov.io/gh/NZCypher819/garage_sensor/branch/main/graph/badge.svg)](https://codecov.io/gh/NZCypher819/garage_sensor)
 
 ## Features
 
@@ -39,8 +39,8 @@ ESP32-S3-NANO Connections:
 1. **Flash initial firmware:**
    ```bash
    # Clone repository
-   git clone https://github.com/your-username/garage-sensorv2.git
-   cd garage-sensorv2
+   git clone https://github.com/NZCypher819/garage_sensor.git
+   cd garage_sensor
    
    # Install PlatformIO
    pip install platformio
