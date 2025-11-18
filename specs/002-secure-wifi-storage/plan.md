@@ -1,41 +1,75 @@
 # Implementation Plan: Secure WiFi Credential Storage
 
-**Branch**: `002-secure-wifi-storage` | **Date**: November 18, 2025 | **Spec**: [spec.md](spec.md)
+**Branch**: `002-secure-wifi-storage` | **Date**: November 18, 2025 | **Spec**: [spec.md](./spec.md)
 **Input**: Feature specification from `/specs/002-secure-wifi-storage/spec.md`
+
+**Note**: This template is filled in by the `/speckit.plan` command. See `.specify/templates/commands/plan.md` for the execution workflow.
 
 ## Summary
 
-Implement secure WiFi credential storage system for garage sensor device. Core requirement: Store WiFi SSID/password on ESP32 using AES-256 encryption with zero GitHub exposure. Technical approach: ESP32 temporary access point during setup → web portal for credential entry → encrypted storage in NVS → automatic connection on boot → physical reset capability.
+Implement secure WiFi credential storage system for ESP32-based garage sensor device. Primary requirement is to provide initial WiFi setup via temporary access point with web portal, secure credential encryption using AES-256, and physical reset capability for credential updates. System must ensure credentials never appear in source code or external repositories while maintaining reliable connectivity.
 
 ## Technical Context
 
-**Language/Version**: C++ with Arduino framework for ESP32  
-**Primary Dependencies**: Arduino WiFi, ESP32 NVS, WebServer, AES encryption library  
-**Storage**: ESP32 Non-Volatile Storage (NVS) partition for encrypted credentials  
-**Testing**: PlatformIO unit tests, integration tests for WiFi functionality  
-**Target Platform**: ESP32-S3-NANO (Espressif 32 platform 6.4.0)  
-**Project Type**: Single embedded project with web interface component  
-**Performance Goals**: <30s boot-to-WiFi, <5min setup process, <3s web portal response  
-**Constraints**: <10% memory overhead, 10-minute setup timeout, secure credential storage only  
-**Scale/Scope**: Single-device credential management, simple web portal, basic visual feedback
+**Language/Version**: C++ (Arduino framework for ESP32)  
+**Primary Dependencies**: ESP32 Arduino Core, ESPAsyncWebServer, AESLib for encryption  
+**Storage**: ESP32 NVS (Non-Volatile Storage) partition for encrypted credential persistence  
+**Testing**: PlatformIO unit testing framework with native test environment  
+**Target Platform**: ESP32 microcontroller (dual-core 240MHz, 520KB SRAM)  
+**Project Type**: Single embedded project with source in src/, tests in tests/  
+**Performance Goals**: WiFi connection within 30 seconds, setup portal response within 3 seconds  
+**Constraints**: <10% memory overhead for credential management, <10 minute setup timeout for security  
+**Scale/Scope**: Single device operation, support for one WiFi credential set, embedded web portal
 
 ## Constitution Check
 
 *GATE: Must pass before Phase 0 research. Re-check after Phase 1 design.*
 
-✅ **I. Reliability-First**: Feature includes credential validation via actual WiFi connection attempt before storage. Error handling for network outages and invalid credentials explicitly defined. Graceful degradation when WiFi unavailable.
+## Constitution Check
 
-✅ **II. Power-Aware Design**: Setup mode timeout (10 minutes) conserves power. Temporary AP disabled after successful connection. LED feedback minimizes continuous power draw. Impact: Estimated <5% additional power consumption during normal operation.
+*GATE: Must pass before Phase 0 research. Re-check after Phase 1 design.* ✅
 
-✅ **III. Specification-Driven Development**: Complete user scenarios with independently testable stories. Technical plan required before implementation. All user stories prioritized (P1/P2) and independently deployable.
+### I. Reliability-First ✅
+- WiFi credential validation via actual connection attempt before storage (FR-003) ✅
+- Graceful degradation: setup mode timeout and retry mechanisms (FR-012) ✅  
+- Error handling for invalid credentials and connection failures ✅
+- Secure credential wiping prevents corruption (FR-013) ✅
+- **Phase 1 Update**: Data model includes comprehensive error states and retry logic
 
-✅ **IV. Secure-by-Design**: AES-256 encryption mandatory before storage. No plaintext credential exposure. GitHub isolation explicitly required. Physical reset mechanism for security. Secure credential wiping implemented.
+### II. Power-Aware Design ✅
+- Temporary AP disabled after successful connection to reduce power consumption (FR-007) ✅
+- Setup mode timeout (10 minutes) prevents indefinite high-power state (FR-012) ✅
+- Connection state management minimizes unnecessary WiFi scanning ✅
+- **Phase 1 Update**: Memory requirements documented at <1KB total, <512 bytes persistent
 
-✅ **V. Observability and Diagnostics**: Visual LED feedback for connection states. Structured logging during setup and connection phases. Error states clearly communicated through LED patterns and portal interface.
+### III. Specification-Driven Development ✅
+- Feature started with user scenarios in spec.md ✅
+- Three independent user stories with clear acceptance criteria ✅
+- Technical plan created before implementation ✅
+- Each story is independently testable ✅
+- **Phase 1 Update**: Complete data model and API contracts established
 
-✅ **VI. Test-Driven Development**: Unit tests required for credential encryption/decryption. Integration tests for WiFi functionality and NVS storage. Setup portal testing mandatory. Test coverage >80% required per constitution.
+### IV. Secure-by-Design ✅
+- AES-256 encryption for credential storage (FR-003) ✅
+- No plaintext credential exposure in logs or source (FR-009) ✅
+- Credentials isolated from GitHub/external systems per user requirement ✅
+- Device authentication via unique identifier (FR-010) ✅
+- Setup mode timeout for security (FR-012) ✅
+- **Phase 1 Update**: Security context with hardware-derived keys, secure memory wiping
 
-**GATE RESULT**: ✅ PASS - All constitutional principles addressed
+### V. Observability and Diagnostics ✅
+- Visual feedback via LED during connection states (FR-011) ✅
+- Structured error logging planned for WiFi components ✅
+- Connection state tracking and attempt history ✅
+- Device health monitoring integration points identified ✅
+- **Phase 1 Update**: Status API endpoint provides comprehensive device state information
+
+### VI. Test-Driven Development ✅
+- Unit tests mandatory for credential encryption, NVS storage, connection management ✅
+- Integration tests required for complete setup flow and security validation ✅
+- Test coverage >80% requirement documented in tasks.md ✅
+- Tests must be written first and fail before implementation ✅
+- **Phase 1 Update**: Quickstart.md includes comprehensive test validation scenarios
 
 ## Project Structure
 
@@ -54,119 +88,56 @@ specs/[###-feature]/
 ### Source Code (repository root)
 
 ```text
+# ESP32 Embedded Project Structure
 src/
-├── wifi/                         # New WiFi credential management
-│   ├── wifi_credential_manager.h  # Core credential storage/encryption
-│   ├── wifi_credential_manager.cpp
-│   ├── wifi_setup_portal.h       # Web portal for credential entry  
-│   ├── wifi_setup_portal.cpp
-│   ├── wifi_connection_manager.h # Connection handling and state
-│   └── wifi_connection_manager.cpp
-├── config/                       # Existing configuration
-│   ├── hardware.h               # Board pin definitions (existing)
-│   └── wifi_config.h            # WiFi-specific constants (new)
-├── security/                     # Existing security infrastructure
-│   ├── credential_encryption.h  # AES-256 encryption utilities (new)
-│   └── credential_encryption.cpp
-└── actuators/                   # Existing LED controllers (for feedback)
-    └── status_led_controller.h  # WiFi status LED patterns (extend)
+├── wifi/                    # WiFi credential management
+│   ├── wifi_credential_manager.h/cpp
+│   ├── wifi_connection_manager.h/cpp
+│   └── wifi_setup_portal.h/cpp
+├── security/               # Encryption and security
+│   ├── credential_encryption.h/cpp
+│   ├── integrity_check.h/cpp (existing)
+│   └── rollback_manager.h/cpp (existing)
+├── actuators/              # LED feedback (existing)
+│   └── status_led_controller.h/cpp (extend)
+├── config/                 # Configuration management (existing)
+│   ├── wifi_config.h (new)
+│   └── device_configuration.h/cpp (existing)
+└── main.cpp               # Integration point (existing)
 
-data/                            # Web portal assets
-├── setup_portal.html           # Setup form interface
-├── setup_portal.css            # Styling
-└── setup_portal.js             # Client-side validation
+data/                      # Web portal assets
+├── setup_portal.html
+├── setup_portal.css
+└── setup_portal.js
 
 tests/
-├── unit/
-│   ├── test_wifi_credential_manager.cpp  # Encryption/storage tests
-│   ├── test_credential_encryption.cpp    # AES-256 tests
-│   └── test_wifi_connection_manager.cpp  # Connection logic tests
-└── integration/
-    ├── test_setup_portal.cpp            # Web interface tests
-    ├── test_wifi_flow.cpp               # End-to-end setup tests
-    └── test_nvs_storage.cpp             # NVS persistence tests
+├── unit/                  # Component-level tests
+│   ├── test_credential_encryption.cpp
+│   ├── test_nvs_storage.cpp
+│   ├── test_setup_portal.cpp
+│   └── test_wifi_connection_manager.cpp
+└── integration/           # End-to-end tests
+    ├── test_wifi_setup_flow.cpp
+    └── test_credential_security.cpp
+
+platformio.ini            # ESP32 build configuration (existing)
 ```
 
-**Structure Decision**: Single embedded project extending existing garage sensor architecture. WiFi components organized in dedicated `src/wifi/` module for clear separation. Web assets in `data/` directory following ESP32 convention. Security utilities extend existing `src/security/` infrastructure.
+**Structure Decision**: Single ESP32 embedded project with modular architecture. WiFi and security components are separate modules to enable independent testing. Web assets stored in data/ directory for SPIFFS deployment to ESP32 flash memory.
 
-## Phase 0: Research & Unknown Resolution
+## Implementation Plan Complete
 
-*Extract unknowns from Technical Context and generate research tasks*
+**Status**: ✅ Phase 0 & Phase 1 Complete - Ready for Phase 2 (Tasks)
 
-### Research Tasks Generated
+All constitutional requirements satisfied throughout design process. No complexity violations requiring justification.
 
-**R001: ESP32 NVS Encryption Implementation**
-- Task: Research ESP32 NVS partition management and AES-256 encryption integration
-- Unknown: Best practices for secure key derivation and storage on ESP32
-- Why: Constitution requires secure-by-design implementation
+**Generated Artifacts:**
+- ✅ `research.md` - Technical research and implementation decisions
+- ✅ `data-model.md` - Core entities, relationships, and data flow  
+- ✅ `contracts/setup-portal-api.md` - REST API specification for web portal
+- ✅ `contracts/wifi-manager-api.md` - Internal C++ API contracts
+- ✅ `quickstart.md` - Developer testing and validation scenarios
+- ✅ Agent context updated with new technology stack
 
-**R002: WiFi Access Point & Web Server Libraries** 
-- Task: Identify optimal Arduino libraries for temporary AP and web portal
-- Unknown: WebServer library capabilities for form handling and asset serving
-- Why: Setup portal must be responsive (<3s) and reliable
-
-**R003: WiFi Connection State Management**
-- Task: Research WiFi reconnection strategies and connection timeout handling  
-- Unknown: Best practices for automatic reconnection vs setup mode triggering
-- Why: Reliability-first requires graceful handling of network outages
-
-**R004: ESP32 Memory Management for Web Assets**
-- Task: Research efficient storage and serving of HTML/CSS/JS from ESP32
-- Unknown: Memory constraints and SPIFFS vs embedded assets trade-offs
-- Why: <10% memory overhead constraint and power-aware design principles
-
-### Research Findings Summary
-
-#### R001: ESP32 NVS Encryption Implementation
-
-**Decision**: Use ESP32 Preferences library with custom AES-256 encryption layer
-**Rationale**: Preferences library provides NVS abstraction. AES-256 encryption applied before storage using ESP32 hardware crypto acceleration.
-**Alternatives considered**: Direct NVS API (more complex), built-in ESP32 encryption (less control)
-
-#### R002: WiFi Access Point & Web Server Libraries
-
-**Decision**: ESP32 WiFi library for AP mode, ESPAsyncWebServer for portal
-**Rationale**: ESPAsyncWebServer provides non-blocking operation and better resource management than standard WebServer. Native WiFi library offers reliable AP creation.
-**Alternatives considered**: Arduino WebServer (blocking), WiFiManager (limited customization)
-
-#### R003: WiFi Connection State Management  
-
-**Decision**: Exponential backoff reconnection with setup mode fallback
-**Rationale**: Attempt reconnection 3 times with 2s, 4s, 8s delays. If all fail, trigger setup mode for user intervention.
-**Alternatives considered**: Continuous retry (power drain), immediate setup mode (no resilience)
-
-#### R004: ESP32 Memory Management for Web Assets
-
-**Decision**: Inline HTML/CSS/JS as string constants in program memory  
-**Rationale**: Avoids SPIFFS overhead and file system complexity. Portal is simple enough for inline approach. Keeps assets under 8KB total.
-**Alternatives considered**: SPIFFS files (complexity), external hosting (requires internet)
-
-## Post-Design Constitution Check
-
-*Re-evaluate constitutional compliance after Phase 1 design completion*
-
-✅ **I. Reliability-First**: Design includes comprehensive error handling for WiFi failures, credential corruption, and memory issues. Exponential backoff reconnection strategy prevents connection storms. State validation before storage operations.
-
-✅ **II. Power-Aware Design**: Setup mode timeout conserves power. Async web server prevents blocking operations. LED feedback optimized for minimal power draw. Connection retry logic includes power-saving delays.
-
-✅ **III. Specification-Driven Development**: Data model, API contracts, and quickstart guide generated from functional requirements. Clear separation of concerns in class design. All user stories mapped to specific API operations.
-
-✅ **IV. Secure-by-Design**: AES-256 encryption with hardware-derived keys. NVS secure storage. No credential transmission. Session timeouts. Rate limiting on portal access. Secure credential wiping implemented.
-
-✅ **V. Observability and Diagnostics**: Structured logging in all components. Connection statistics tracking. Portal access monitoring. LED state machine for visual feedback. Serial debugging support.
-
-✅ **VI. Test-Driven Development**: Unit test contracts defined for all classes. Integration tests for end-to-end WiFi flow. Test coverage requirements >80%. Mock objects for hardware dependencies.
-
-**FINAL GATE RESULT**: ✅ PASS - Design maintains constitutional compliance
-
----
-
-## Planning Complete
-
-**Status**: ✅ READY FOR TASK BREAKDOWN  
-**Next Command**: `/speckit.tasks` to generate detailed implementation tasks  
-**Artifacts Created**: 
-- [plan.md](plan.md) - This implementation plan
-- [data-model.md](data-model.md) - Entity definitions and relationships  
-- [contracts/](contracts/) - API specifications and class interfaces
-- [quickstart.md](quickstart.md) - Developer and user guides
+**Next Steps:**
+Run `/speckit.tasks` command to generate Phase 2 implementation tasks from this plan.

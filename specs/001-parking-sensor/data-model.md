@@ -87,22 +87,33 @@ Raw data from E3JK-RR11 infrared beam sensor
 **Fields**:
 - `timestamp`: ISO 8601 timestamp of reading
 - `beam_state`: enum ["intact", "broken"]
-- `raw_signal`: boolean - direct GPIO pin state
-- `debounced_signal`: boolean - signal after hardware debouncing  
+- `raw_adc_value`: integer 0-4095 - 12-bit ADC reading from GPIO pin
+- `voltage`: float - calculated voltage (0.0-3.3V) from ADC value
+- `averaged_adc`: integer - average of 5 consecutive ADC samples
+- `threshold_exceeded`: boolean - whether voltage exceeds detection threshold
 - `validation_passed`: boolean - whether reading passed software validation
 - `consecutive_readings`: integer - number of consecutive similar readings
-- `noise_detected`: boolean - whether electrical interference detected
+- `noise_detected`: boolean - whether voltage oscillation/noise detected
 
 **Validation Rules**:
-- `beam_state` derived from `debounced_signal` and `validation_passed`
+- `beam_state` derived from `averaged_adc` and `threshold_exceeded`
+- `raw_adc_value` must be in range 0-4095 (12-bit ADC)
+- `voltage` calculated as (raw_adc_value / 4095.0) * 3.3
+- `averaged_adc` is mean of 5 samples taken 100μs apart
+- `threshold_exceeded` true when `averaged_adc > 0` (configurable)
 - `consecutive_readings` must be positive
 - `validation_passed` false triggers sensor health degradation
 - Readings older than 1 second are considered stale
 
+**Implementation Notes**:
+- Multi-sample averaging (5 samples) reduces voltage noise and relay bounce
+- Analog threshold detection handles variable sensor output voltages (0V clear, 2-3V blocked)
+- Samples taken with 100μs delay between readings for noise filtering
+
 **State Transitions**:
-- `intact` → `broken`: Vehicle enters beam, triggers parking event
-- `broken` → `intact`: Vehicle exits beam, triggers restore event  
-- Rapid state changes indicate sensor noise/interference
+- `intact` → `broken`: Vehicle enters beam (voltage rises above threshold), triggers parking event
+- `broken` → `intact`: Vehicle exits beam (voltage drops to 0V), triggers restore event  
+- Rapid state changes indicate sensor noise/interference or hardware connection issues
 
 ## Configuration Data
 
@@ -116,7 +127,9 @@ Persistent settings stored in EEPROM/SPIFFS
 - `ota_server_url`: string - GitHub releases URL or custom server
 - `led_brightness`: integer 0-255 - LED PWM brightness level
 - `power_save_timeout_seconds`: integer - idle time before entering low power
-- `sensor_debounce_ms`: integer - hardware debouncing duration
+- `sensor_threshold_adc`: integer 0-4095 - ADC value threshold for beam detection (default 0 for >0V detection)
+- `sensor_sample_count`: integer - number of ADC samples to average (default 5)
+- `sensor_sample_delay_us`: integer - microseconds between ADC samples (default 100)
 - `response_time_target_ms`: integer - target response time (default 100)
 - `log_level`: enum ["debug", "info", "warn", "error"]
 - `telemetry_enabled`: boolean - whether to send data to remote server
@@ -126,6 +139,9 @@ Persistent settings stored in EEPROM/SPIFFS
 - `device_id` must be unique and non-empty
 - `wifi_ssid` and `wifi_password` required for connectivity
 - `led_brightness` range 0-255
+- `sensor_threshold_adc` range 0-4095 (12-bit ADC resolution)
+- `sensor_sample_count` must be positive (recommended 3-10)
+- `sensor_sample_delay_us` must be positive (recommended 50-500)
 - All timeout values must be positive
 - `log_level` must be valid enum value
 

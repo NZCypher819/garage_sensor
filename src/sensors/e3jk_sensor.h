@@ -30,6 +30,7 @@ public:
     E3JKSensor(int pin, bool use_no_contact = true);
     bool begin();
     BeamState getCurrentState() const { return current_state_; }
+    BeamState readRawState();  // Read current GPIO state
     bool isEnabled() const { return enabled_; }
     void setEnabled(bool enabled);
 
@@ -38,8 +39,6 @@ private:
     bool use_no_contact_;  // true for NO contact, false for NC contact
     bool enabled_;
     BeamState current_state_;
-    
-    BeamState readRawState();
 };
 
 } // namespace Sensors

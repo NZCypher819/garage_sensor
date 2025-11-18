@@ -1,6 +1,7 @@
 #include <Arduino.h>
 #include <WiFi.h>
 #include <SPIFFS.h>
+#include <ESPAsyncWebServer.h>
 #include "config/hardware.h"
 
 // User Story 1 Implementation - Phase 3 (Simplified)
@@ -23,6 +24,11 @@
 #include "security/rollback_manager.h"
 #include "config/version_manager.h"
 
+// Feature 002: Secure WiFi Credential Storage
+#include "wifi/wifi_credential_manager.h"
+#include "wifi/wifi_connection_manager.h"
+#include "wifi/wifi_setup_portal.h"
+
 /**
  * Garage Parking Position Sensor - Main Application
  * ESP32-S3-NANO with E3JK-RR11 IR Sensor
@@ -43,6 +49,7 @@
 
 // Function declarations
 bool initializeFoundation();
+bool initializeWiFiSystem(); // Feature 002: WiFi credential storage
 bool initializeUserStory1(); 
 bool initializeUserStory2();
 bool initializeUserStory3();
@@ -71,6 +78,12 @@ Security::IntegrityCheck* integrity_check = nullptr;
 Network::OTALogger* ota_logger = nullptr;
 Network::OTAHandler* ota_handler = nullptr;
 
+// Feature 002: Secure WiFi Credential Storage components
+WiFiCredentialManager* wifi_credential_manager = nullptr;
+WiFiConnectionManager* wifi_connection_manager = nullptr;
+WiFiSetupPortal* wifi_setup_portal = nullptr;
+AsyncWebServer* web_server = nullptr;
+
 // System state
 bool system_initialized = false;
 unsigned long startup_time = 0;
@@ -89,6 +102,8 @@ void setup() {
     Serial.println("User Story 2: System Health Indication"); 
     Serial.println("User Story 3: Power Management");
     Serial.println("Phase 6: Security & OTA Updates");
+    Serial.println("[DEBUG] About to initialize foundation..."); 
+    Serial.flush(); // Force output
     
     // Phase 2: Initialize foundational infrastructure
     if (!initializeFoundation()) {
@@ -99,16 +114,7 @@ void setup() {
         }
     }
     
-    // Phase 3: Initialize User Story 1 components
-    if (!initializeUserStory1()) {
-        Serial.println("FATAL: User Story 1 initialization failed");
-        while (true) {
-            delay(5000);
-            ESP.restart();
-        }
-    }
-    
-    // Phase 4: Initialize User Story 2 components
+    // Phase 3: Initialize User Story 2 components (status LED needed by WiFi system)
     if (!initializeUserStory2()) {
         Serial.println("FATAL: User Story 2 initialization failed");
         while (true) {
@@ -117,7 +123,24 @@ void setup() {
         }
     }
     
-    // Phase 5: Initialize User Story 3 components
+    // Phase 4: Feature 002: Initialize WiFi credential storage system (requires status LED)
+    if (!initializeWiFiSystem()) {
+        Serial.println("WARNING: WiFi system initialization failed - device will operate without connectivity");
+        // Non-fatal - system can operate without WiFi for local parking detection
+    }
+    
+    // Phase 5: Initialize User Story 1 components
+    if (!initializeUserStory1()) {
+        Serial.println("FATAL: User Story 1 initialization failed");
+        while (true) {
+            delay(5000);
+            ESP.restart();
+        }
+    }
+    
+    // Phase 6: Initialize User Story 3 components (DISABLED - sleep mode removed for testing)
+    // Power management temporarily disabled to allow continuous LED monitoring
+    /*
     if (!initializeUserStory3()) {
         Serial.println("FATAL: User Story 3 initialization failed");
         while (true) {
@@ -125,8 +148,10 @@ void setup() {
             ESP.restart();
         }
     }
+    */
+    Serial.println("User Story 3: Power Management DISABLED for testing");
     
-    // Phase 6: Initialize Security & OTA Updates
+    // Phase 7: Initialize Security & OTA Updates
     if (!initializePhase6OTA()) {
         Serial.println("WARNING: Phase 6 OTA initialization failed - continuing without updates");
         // Non-fatal - system can operate without OTA
@@ -140,7 +165,7 @@ void setup() {
     Serial.printf("Target response time: <%d ms\n", 100);
     Serial.println("Parking detection: ACTIVE");
     Serial.println("System health monitoring: ACTIVE");
-    Serial.println("Power management: ACTIVE");
+    Serial.println("Power management: DISABLED (testing mode)");
     if (ota_handler) {
         Serial.println("OTA updates: ACTIVE");
     }
@@ -155,19 +180,6 @@ void loop() {
     // Update core parking detection system
     if (parking_detector) {
         parking_detector->update();
-        
-        // Report parking activity to power manager
-        if (power_manager) {
-            Core::ParkingState current_state = parking_detector->getCurrentState();
-            if (current_state == Core::ParkingState::OCCUPIED || current_state == Core::ParkingState::EMPTY) {
-                // Any state change indicates activity
-                static Core::ParkingState last_parking_state = Core::ParkingState::ERROR;
-                if (current_state != last_parking_state) {
-                    power_manager->reportActivity();
-                    last_parking_state = current_state;
-                }
-            }
-        }
     }
     
     // Update User Story 2 - Health monitoring and status LED
@@ -175,10 +187,17 @@ void loop() {
         health_monitor->update();
     }
     
-    // Update User Story 3 - Power management
-    if (power_manager) {
-        power_manager->update();
+    // Update User Story 3 - Power management (DISABLED)
+    // Power management temporarily disabled for testing
+    // if (power_manager) {
+    //     power_manager->update();
+    // }
+    
+    // Update WiFi system - Feature 002
+    if (wifi_connection_manager) {
+        wifi_connection_manager->update();
     }
+    // Note: WiFiSetupPortal is event-driven via async callbacks, no update() needed
     
     // Periodic health monitoring
     unsigned long current_time = millis();
@@ -264,6 +283,14 @@ bool initializeUserStory1() {
     }
     Serial.println("✓ System self-test passed");
     
+    // Report initial sensor health to health monitor if available
+    if (health_monitor) {
+        Core::ParkingState current_state = parking_detector->getCurrentState();
+        bool sensor_healthy = (current_state != Core::ParkingState::ERROR);
+        health_monitor->reportSensorStatus(sensor_healthy);
+        Serial.printf("Initial sensor health reported: %s\n", sensor_healthy ? "HEALTHY" : "FAULT");
+    }
+    
     Serial.println("User Story 1 implementation ready");
     return true;
 }
@@ -324,23 +351,10 @@ void performSystemHealthCheck() {
             case Core::ParkingState::ERROR: Serial.print("ERROR"); break;
         }
         
-        // Include power management statistics
-        if (power_manager) {
-            float current_consumption = power_manager->getCurrentConsumptionMA();
-            Power::PowerManager::PowerStats stats = power_manager->getPowerStats();
-            
-            Serial.printf(", System Health: %s, Current: %.1fmA, Free heap: %d bytes\n", 
-                         health_monitor->isSystemHealthy() ? "HEALTHY" : "FAULT",
-                         current_consumption,
-                         ESP.getFreeHeap());
-            
-            Serial.printf("Power Stats: %lu wakes, %lu ms total sleep, avg %.1fmA\n",
-                         stats.wake_count, stats.total_sleep_time_ms, stats.average_consumption_ma);
-        } else {
-            Serial.printf(", System Health: %s, Free heap: %d bytes\n", 
-                         health_monitor->isSystemHealthy() ? "HEALTHY" : "FAULT", 
-                         ESP.getFreeHeap());
-        }
+        // System health and heap info (power management disabled)
+        Serial.printf(", System Health: %s, Free heap: %d bytes\n", 
+                     health_monitor->isSystemHealthy() ? "HEALTHY" : "FAULT", 
+                     ESP.getFreeHeap());
     }
 }
 
@@ -360,6 +374,99 @@ void emergencyRecovery() {
     }
     
     Serial.println("Emergency recovery completed");
+}
+
+bool initializeWiFiSystem() {
+    Serial.println("Initializing WiFi Credential Storage System...");
+    Serial.println("Feature 002: Secure WiFi credential storage");
+    
+    // Initialize WiFi credential manager (T018-T021)
+    wifi_credential_manager = new WiFiCredentialManager();
+    if (!wifi_credential_manager || !wifi_credential_manager->begin()) {
+        Serial.println("ERROR: WiFi credential manager initialization failed");
+        return false;
+    }
+    Serial.println("✓ WiFi credential manager initialized");
+    
+    // Initialize WiFi connection manager (T031-T034)
+    wifi_connection_manager = new WiFiConnectionManager();
+    if (!wifi_connection_manager || !wifi_connection_manager->begin(wifi_credential_manager, status_led)) {
+        Serial.println("ERROR: WiFi connection manager initialization failed");
+        delete wifi_credential_manager; wifi_credential_manager = nullptr;
+        return false;
+    }
+    Serial.println("✓ WiFi connection manager initialized");
+    
+    // Check for stored credentials and attempt connection (FR-005)
+    if (wifi_credential_manager->hasStoredCredentials()) {
+        Serial.println("Found stored WiFi credentials - attempting connection...");
+        if (wifi_connection_manager->connectToStoredNetwork()) {
+            Serial.println("✓ WiFi connection initiated");
+            
+            // Wait briefly for connection attempt (non-blocking in main loop will handle full connection)
+            delay(2000);
+            
+            if (wifi_connection_manager->isWiFiConnected()) {
+                String ssid, password;
+                int signal_strength;
+                String ip_address;
+                
+                if (wifi_connection_manager->getWiFiStatus(ssid, signal_strength, ip_address)) {
+                    Serial.printf("✓ Connected to WiFi: %s\n", ssid.c_str());
+                    Serial.printf("  IP Address: %s\n", ip_address.c_str());
+                    Serial.printf("  Signal: %d dBm\n", signal_strength);
+                }
+            } else {
+                Serial.println("WiFi connection in progress - will complete in background");
+            }
+        }
+    } else {
+        // No stored credentials - enter setup mode (FR-001, FR-002)
+        Serial.println("No stored credentials found - entering setup mode");
+        if (wifi_connection_manager->enterSetupMode()) {
+            Serial.println("✓ Setup mode activated");
+            
+            // Initialize WiFi setup portal (T029-T042)
+            wifi_setup_portal = new WiFiSetupPortal();
+            web_server = new AsyncWebServer(80); // HTTP on port 80
+            if (!wifi_setup_portal || !web_server || !wifi_setup_portal->begin(web_server, wifi_credential_manager, wifi_connection_manager)) {
+                Serial.println("ERROR: WiFi setup portal initialization failed");
+                delete web_server; web_server = nullptr;
+                delete wifi_connection_manager; wifi_connection_manager = nullptr;
+                delete wifi_credential_manager; wifi_credential_manager = nullptr;
+                return false;
+            }
+            Serial.println("✓ WiFi setup portal started");
+            
+            // Get setup session details
+            const SetupSession& session = wifi_connection_manager->getSetupSession();
+            
+            // Start portal session to enable web access (synchronize session tracking)
+            if (!wifi_setup_portal->startSession(session.ip_address)) {
+                Serial.println("ERROR: Failed to start portal session");
+                delete web_server; web_server = nullptr;
+                delete wifi_setup_portal; wifi_setup_portal = nullptr;
+                delete wifi_connection_manager; wifi_connection_manager = nullptr;
+                delete wifi_credential_manager; wifi_credential_manager = nullptr;
+                return false;
+            }
+            Serial.println("✓ Portal session activated");
+            Serial.println("=== WiFi Setup Instructions ===");
+            Serial.printf("1. Connect to WiFi network: %s\n", wifi_connection_manager->getDeviceAPSSID().c_str());
+            Serial.printf("2. Open browser to: http://%s/setup\n", session.ip_address.c_str());
+            Serial.println("3. Enter your home WiFi credentials");
+            Serial.printf("4. Setup session expires in %lu minutes\n", session.timeout_ms / 60000);
+            Serial.println("================================");
+        } else {
+            Serial.println("ERROR: Failed to enter setup mode");
+            delete wifi_connection_manager; wifi_connection_manager = nullptr;
+            delete wifi_credential_manager; wifi_credential_manager = nullptr;
+            return false;
+        }
+    }
+    
+    Serial.println("WiFi system initialization complete");
+    return true;
 }
 
 bool initializePhase6OTA() {

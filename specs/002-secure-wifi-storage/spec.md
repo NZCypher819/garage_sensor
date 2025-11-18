@@ -71,18 +71,17 @@ The device must protect WiFi credentials from unauthorized access and ensure the
 
 - **FR-001**: System MUST provide a temporary WiFi access point for initial setup when no valid credentials exist
 - **FR-002**: System MUST present a web-based configuration portal accessible via the temporary access point
-- **FR-003**: System MUST encrypt WiFi credentials using AES-256 encryption before storage
+- **FR-003**: System MUST encrypt WiFi credentials using AES-256 encryption and validate via actual connection before storage
 - **FR-004**: System MUST store encrypted credentials in ESP32 NVS (Non-Volatile Storage) partition
 - **FR-005**: System MUST automatically attempt connection to stored WiFi network on boot
 - **FR-006**: System MUST provide a physical reset mechanism to clear stored credentials and enter setup mode
-- **FR-007**: System MUST validate WiFi credentials by attempting actual connection before saving
-- **FR-008**: System MUST disable temporary access point once valid WiFi connection is established  
-- **FR-009**: System MUST support WPA2 and WPA3 WiFi security protocols
-- **FR-010**: System MUST never transmit, log, or expose plaintext WiFi credentials
-- **FR-011**: System MUST generate unique device identifier for access point naming
-- **FR-012**: System MUST provide visual feedback (LED) during different connection states
-- **FR-013**: System MUST timeout setup mode after 10 minutes of inactivity for security
-- **FR-014**: System MUST securely wipe old credentials when new ones are saved
+- **FR-007**: System MUST disable temporary access point once valid WiFi connection is established  
+- **FR-008**: System MUST support WPA2 and WPA3 WiFi security protocols
+- **FR-009**: System MUST never transmit, log, or expose plaintext WiFi credentials
+- **FR-010**: System MUST generate unique device identifier for access point naming
+- **FR-011**: System MUST provide visual feedback (LED) during different connection states
+- **FR-012**: System MUST timeout setup mode after 10 minutes of inactivity for security
+- **FR-013**: System MUST securely wipe old credentials when new ones are saved
 
 ### Key Entities
 
@@ -103,6 +102,7 @@ The device must protect WiFi credentials from unauthorized access and ensure the
 - **SC-006**: Credential updates complete successfully within 2 minutes including device reconnection
 - **SC-007**: Device consumes less than 10% additional memory for credential storage and management
 - **SC-008**: Setup portal loads and responds within 3 seconds of connecting to device access point
+- **SC-009**: Test coverage maintained above 80% across all WiFi credential management components
 
 ## Assumptions
 
@@ -110,7 +110,7 @@ The device must protect WiFi credentials from unauthorized access and ensure the
 - Device will be used in residential environments with standard WiFi routers
 - Physical access to device reset button is available for credential updates
 - Users can connect to temporary WiFi access points using smartphones or computers
-- Standard web browsers support the setup portal interface
+- Modern web browsers (Chrome 90+, Safari 14+, Firefox 88+, Edge 90+) support the setup portal interface
 - ESP32 NVS partition has sufficient space for encrypted credential storage
 - Device operates in environments with 2.4GHz WiFi coverage
 

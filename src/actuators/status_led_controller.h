@@ -22,7 +22,13 @@ public:
         OFF = 0,
         STARTUP,     // 2x blinks for initialization complete
         NORMAL,      // 25% brightness for healthy operation
-        ERROR        // Rapid blinks for system faults
+        ERROR,       // Rapid blinks for system faults
+        
+        // WiFi Status Patterns (Feature: 002-secure-wifi-storage)
+        WIFI_SETUP,      // Blue flashing - setup mode active
+        WIFI_CONNECTING, // Blue solid - attempting connection
+        WIFI_CONNECTED,  // Green solid - WiFi connected  
+        WIFI_ERROR       // Red flashing - connection failed
     };
 
     /**
@@ -80,6 +86,12 @@ private:
     void updateStartupPattern();
     void updateNormalPattern();
     void updateErrorPattern();
+    
+    // WiFi pattern methods (Feature: 002-secure-wifi-storage)
+    void updateWiFiSetupPattern();     // Blue flashing for setup mode
+    void updateWiFiConnectingPattern(); // Blue solid for connecting
+    void updateWiFiConnectedPattern();  // Green solid for connected
+    void updateWiFiErrorPattern();      // Red flashing for error
 };
 
 } // namespace Actuators

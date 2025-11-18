@@ -9,23 +9,31 @@ void Logger::setLogLevel(LogLevel level) {
     current_log_level_ = level;
 }
 
-void Logger::debug(const String& message) {
-    debug("", message);
+void Logger::debug_log(const String& message) {
+    if (current_log_level_ <= LogLevel::DEBUG) {
+        Serial.println("[DEBUG] " + message);
+    }
 }
 
 void Logger::info(const String& message) {
-    info("", message);
+    if (current_log_level_ <= LogLevel::INFO) {
+        Serial.println("[INFO] " + message);
+    }
 }
 
-void Logger::warn(const String& message) {
-    warn("", message);
+void Logger::warning(const String& message) {
+    if (current_log_level_ <= LogLevel::WARN) {
+        Serial.println("[WARN] " + message);
+    }
 }
 
 void Logger::error(const String& message) {
-    error("", message);
+    if (current_log_level_ <= LogLevel::ERROR) {
+        Serial.println("[ERROR] " + message);
+    }
 }
 
-void Logger::debug(const String& component, const String& message) {
+void Logger::debug_log(const String& component, const String& message) {
     log(LogLevel::DEBUG, component, message);
 }
 
@@ -33,7 +41,7 @@ void Logger::info(const String& component, const String& message) {
     log(LogLevel::INFO, component, message);
 }
 
-void Logger::warn(const String& component, const String& message) {
+void Logger::warning(const String& component, const String& message) {
     log(LogLevel::WARN, component, message);
 }
 

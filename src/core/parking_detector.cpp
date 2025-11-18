@@ -28,7 +28,7 @@ void ParkingDetector::update() {
     
     // Check sensor every 50ms for responsiveness
     if (current_time - last_sensor_check_ >= 50) {
-        Sensors::BeamState beam_state = sensor_.getCurrentState();
+        Sensors::BeamState beam_state = sensor_.readRawState();  // Read GPIO pin
         processBeamStateChange(beam_state);
         last_sensor_check_ = current_time;
     }

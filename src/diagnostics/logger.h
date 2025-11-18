@@ -27,17 +27,17 @@ public:
     /**
      * Logging functions for different levels
      */
-    static void debug(const String& message);
+    static void debug_log(const String& message);
     static void info(const String& message);
-    static void warn(const String& message);
+    static void warning(const String& message);
     static void error(const String& message);
 
     /**
      * Logging with component context
      */
-    static void debug(const String& component, const String& message);
+    static void debug_log(const String& component, const String& message);
     static void info(const String& component, const String& message);
-    static void warn(const String& component, const String& message);
+    static void warning(const String& component, const String& message);
     static void error(const String& component, const String& message);
 
 private:

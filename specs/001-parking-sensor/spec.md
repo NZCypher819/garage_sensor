@@ -70,7 +70,7 @@ For long-term reliability and reduced power consumption, the system intelligentl
 
 ### Functional Requirements
 
-- **FR-001**: System MUST detect when an object breaks the IR beam from the E3JK-RR11 sensor
+- **FR-001**: System MUST detect when an object breaks the IR beam from the E3JK-RR11 sensor using analog voltage threshold detection
 - **FR-002**: System MUST illuminate the parking LED within 100ms when the beam is broken
 - **FR-003**: System MUST turn off the parking LED within 100ms when the beam is restored
 - **FR-004**: System MUST provide visual indication of system health and operational status via separate status LED
@@ -79,10 +79,11 @@ For long-term reliability and reduced power consumption, the system intelligentl
 - **FR-007**: System MUST log sensor events for diagnostics and reliability monitoring
 - **FR-008**: System MUST handle sensor faults gracefully without false parking indications
 - **FR-009**: System MUST maintain consistent response times regardless of idle duration
-- **FR-010**: System MUST validate sensor readings to prevent false positives from interference
+- **FR-010**: System MUST validate sensor readings using multi-sample averaging (5 samples) to prevent false positives from voltage noise
 - **FR-011**: System MUST connect to GitHub releases via HTTPS to download firmware updates
 - **FR-012**: System MUST verify basic file integrity of downloaded firmware before installation
 - **FR-013**: System MUST provide rollback capability if firmware update fails during installation
+- **FR-014**: System MUST use analog voltage detection with configurable threshold for E3JK sensor integration to support variable sensor output voltages
 
 ### Key Entities
 
@@ -110,6 +111,13 @@ For long-term reliability and reduced power consumption, the system intelligentl
 
 - Q: How does security handling work, particularly with OTA updates from GitHub? → A: Simple HTTPS downloads from GitHub releases (basic TLS only)
 
+### Session 2025-11-18 (Hardware Integration)
+
+- Q: How should the E3JK-RR11 sensor relay output be detected? → A: Analog voltage threshold detection with multi-sample averaging (5 samples with 100μs intervals) to handle variable sensor output voltages
+- Q: What voltage threshold should be used for beam detection? → A: Configurable threshold, tested at >0V (any non-zero voltage indicates blocked beam)
+- Q: How to handle voltage oscillation/noise from sensor relay? → A: Multi-sample averaging with 5 ADC readings per detection cycle provides sufficient noise filtering
+- Q: Should digital or analog GPIO reading be used? → A: Analog ADC reading (12-bit, 0-3.3V range) with software threshold provides more reliable detection than digital threshold for sensors with variable output voltage levels
+
 ## Assumptions
 
 - IR sensor will be mounted at vehicle bumper height (approximately 18-24 inches from floor)
@@ -117,3 +125,6 @@ For long-term reliability and reduced power consumption, the system intelligentl
 - Target parking position is a fixed distance from garage door (user will determine optimal placement)
 - Standard garage door opener interference patterns are acceptable
 - User will perform initial alignment and testing of sensor placement
+- E3JK-RR11 sensor relay output voltage may vary between different sensor units (0V clear, 2-3V blocked typical)
+- GPIO 2 on ESP32-S3 is suitable for analog ADC readings with INPUT_PULLUP configuration
+- Sensor power supply (24V for E3JK-RR11) is separate from ESP32 3.3V logic

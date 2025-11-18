@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Garage Sensor WiFi Setup</title>
+    <link rel="stylesheet" href="/setup_portal.css">
+    <style>
+        /* Inline critical CSS for reliability */
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            margin: 0;
+            padding: 20px;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .setup-container {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+            padding: 2rem;
+            max-width: 400px;
+            width: 100%;
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 2rem;
+        }
+        .device-icon {
+            width: 60px;
+            height: 60px;
+            margin: 0 auto 1rem;
+            background: #667eea;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+            color: white;
+        }
+        h1 {
+            color: #333;
+            font-size: 1.5rem;
+            margin: 0 0 0.5rem;
+        }
+        .subtitle {
+            color: #666;
+            font-size: 0.9rem;
+        }
+        .form-group {
+            margin-bottom: 1.5rem;
+        }
+        label {
+            display: block;
+            margin-bottom: 0.5rem;
+            color: #333;
+            font-weight: 500;
+        }
+        input[type="text"], input[type="password"] {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 1rem;
+            transition: border-color 0.3s ease;
+            box-sizing: border-box;
+        }
+        input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        .submit-btn {
+            width: 100%;
+            padding: 12px;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 1rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: background 0.3s ease;
+        }
+        .submit-btn:hover {
+            background: #5a67d8;
+        }
+        .submit-btn:disabled {
+            background: #cbd5e0;
+            cursor: not-allowed;
+        }
+        .error, .success, .info {
+            padding: 12px;
+            border-radius: 6px;
+            margin: 1rem 0;
+            font-size: 0.9rem;
+        }
+        .error {
+            background: #fed7d7;
+            color: #c53030;
+            border: 1px solid #feb2b2;
+        }
+        .success {
+            background: #c6f6d5;
+            color: #2d7d32;
+            border: 1px solid #9ae6b4;
+        }
+        .info {
+            background: #bee3f8;
+            color: #2c5282;
+            border: 1px solid #90cdf4;
+        }
+        .hidden {
+            display: none;
+        }
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #667eea;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="setup-container">
+        <div class="header">
+            <div class="device-icon">📡</div>
+            <h1>Garage Sensor Setup</h1>
+            <p class="subtitle">Configure your WiFi connection</p>
+        </div>
+
+        <div id="status-messages">
+            <div id="info-message" class="info hidden">
+                Enter your WiFi network credentials to connect your garage sensor.
+            </div>
+            <div id="error-message" class="error hidden"></div>
+            <div id="success-message" class="success hidden"></div>
+        </div>
+
+        <form id="wifiForm" action="/configure" method="POST">
+            <div class="form-group">
+                <label for="ssid">WiFi Network Name (SSID)</label>
+                <input type="text" 
+                       id="ssid" 
+                       name="ssid" 
+                       maxlength="32" 
+                       required 
+                       placeholder="Enter your WiFi network name"
+                       autocomplete="off">
+                <small id="ssid-help" style="color: #666; font-size: 0.8rem;"></small>
+            </div>
+
+            <div class="form-group">
+                <label for="password">WiFi Password</label>
+                <input type="password" 
+                       id="password" 
+                       name="password" 
+                       maxlength="63" 
+                       required 
+                       placeholder="Enter your WiFi password"
+                       autocomplete="new-password">
+                <small id="password-help" style="color: #666; font-size: 0.8rem;"></small>
+            </div>
+
+            <div class="form-group">
+                <label for="confirm_password">Confirm Password</label>
+                <input type="password" 
+                       id="confirm_password" 
+                       name="confirm_password" 
+                       maxlength="63" 
+                       required 
+                       placeholder="Confirm your WiFi password"
+                       autocomplete="new-password">
+                <small id="confirm-help" style="color: #666; font-size: 0.8rem;"></small>
+            </div>
+
+            <button type="submit" class="submit-btn" id="submit-btn">
+                <span id="submit-text">Connect to WiFi</span>
+                <span id="submit-loading" class="loading hidden"></span>
+            </button>
+        </form>
+
+        <div id="progress-section" class="hidden" style="margin-top: 2rem;">
+            <div style="text-align: center; color: #666;">
+                <div class="loading" style="margin: 0 auto 1rem;"></div>
+                <p id="progress-text">Testing WiFi connection...</p>
+                <div style="background: #f0f0f0; border-radius: 4px; height: 8px; overflow: hidden;">
+                    <div id="progress-bar" style="background: #667eea; height: 100%; width: 0%; transition: width 0.3s ease;"></div>
+                </div>
+            </div>
+        </div>
+
+        <div style="margin-top: 2rem; text-align: center; font-size: 0.8rem; color: #999;">
+            <p>🔒 Your credentials are encrypted and stored securely on the device.</p>
+            <p>To reset WiFi settings, hold the setup button for 5 seconds.</p>
+        </div>
+    </div>
+
+    <script src="/setup_portal.js"></script>
+    <script>
+        // Initialize the setup portal when page loads
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log('WiFi Setup Portal loaded');
+            
+            // Show initial info message
+            document.getElementById('info-message').classList.remove('hidden');
+            
+            // Check connection status periodically
+            setInterval(checkConnectionStatus, 2000);
+        });
+
+        // Basic inline JavaScript for reliability
+        function showMessage(type, message) {
+            // Hide all messages first
+            ['info-message', 'error-message', 'success-message'].forEach(id => {
+                document.getElementById(id).classList.add('hidden');
+            });
+            
+            // Show the specified message
+            const messageEl = document.getElementById(type + '-message');
+            if (messageEl) {
+                messageEl.textContent = message;
+                messageEl.classList.remove('hidden');
+            }
+        }
+
+        function checkConnectionStatus() {
+            fetch('/status')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.state === 'connected') {
+                        showMessage('success', 'WiFi connected successfully! Setup complete.');
+                        document.getElementById('wifiForm').style.display = 'none';
+                        document.getElementById('progress-section').classList.add('hidden');
+                    } else if (data.state === 'failed') {
+                        showMessage('error', 'Connection failed. Please check your credentials and try again.');
+                        document.getElementById('progress-section').classList.add('hidden');
+                        document.getElementById('submit-btn').disabled = false;
+                    }
+                })
+                .catch(error => {
+                    console.error('Status check failed:', error);
+                });
+        }
+    </script>
+</body>
+</html>
