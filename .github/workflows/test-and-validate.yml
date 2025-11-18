@@ -36,7 +36,7 @@ jobs:
         if [ "${{ matrix.environment }}" == "debug" ]; then
           pio run -e esp32-s3-devkitc-1-debug
         else
-          pio run
+          pio run -e esp32-s3-devkitc-1
         fi
     
     - name: Run unit tests
@@ -72,6 +72,9 @@ jobs:
           else
             echo "✅ Firmware size within limits" >> size-report.md
           fi
+        else
+          echo "❌ Firmware file not found" >> size-report.md
+          ls -la .pio/build/ >> size-report.md || echo "Build directory not found" >> size-report.md
         fi
     
     - name: Upload build artifacts
