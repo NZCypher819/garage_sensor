@@ -379,9 +379,9 @@ bool initializePhase6OTA() {
     }
     Serial.println("✓ Version manager initialized");
     
-    // Initialize rollback manager (T037)
+    // Initialize rollback manager (T037) 
     rollback_manager = new Security::RollbackManager();
-    if (!rollback_manager || !rollback_manager->begin()) {
+    if (!rollback_manager || !rollback_manager->begin("1.0.0")) {
         Serial.println("ERROR: Rollback manager initialization failed");
         delete version_manager; version_manager = nullptr;
         return false;
@@ -389,10 +389,9 @@ bool initializePhase6OTA() {
     Serial.println("✓ Rollback manager initialized");
     
     // Check for boot failure and handle rollback
-    Security::RollbackManager::BootStatus boot_status = rollback_manager->checkBootStatus();
-    if (boot_status == Security::RollbackManager::BootStatus::FAILED) {
-        Serial.println("WARNING: Boot failure detected - automatic rollback may have occurred");
-        rollback_manager->recordSuccessfulBoot(); // Mark current boot as successful
+    Security::RollbackManager::BootInfo boot_info;
+    if (!rollback_manager->checkBootStatus(boot_info)) {
+        Serial.println("WARNING: Boot failure detected");
     }
     
     // Initialize integrity check system (T038)
@@ -407,7 +406,7 @@ bool initializePhase6OTA() {
     
     // Initialize OTA logger (T042)
     ota_logger = new Network::OTALogger();
-    if (!ota_logger || !ota_logger->begin()) {
+    if (!ota_logger || !ota_logger->begin("/ota_logs.json", 100)) {
         Serial.println("ERROR: OTA logger initialization failed");
         delete integrity_check; integrity_check = nullptr;
         delete rollback_manager; rollback_manager = nullptr;
@@ -418,7 +417,7 @@ bool initializePhase6OTA() {
     
     // Initialize GitHub client (T036)
     github_client = new Network::GitHubClient();
-    if (!github_client || !github_client->begin()) {
+    if (!github_client || !github_client->begin("NZCypher819", "garage_sensor")) {
         Serial.println("ERROR: GitHub client initialization failed");
         delete ota_logger; ota_logger = nullptr;
         delete integrity_check; integrity_check = nullptr;
@@ -429,8 +428,14 @@ bool initializePhase6OTA() {
     Serial.println("✓ GitHub client initialized");
     
     // Initialize OTA handler with all components (T039)
-    ota_handler = new Network::OTAHandler(*github_client, *integrity_check, *rollback_manager, *version_manager, *ota_logger);
-    if (!ota_handler || !ota_handler->begin()) {
+    ota_handler = new Network::OTAHandler();
+    Network::OTAHandler::UpdateConfiguration config;
+    config.repository_owner = "NZCypher819";
+    config.repository_name = "garage_sensor";
+    config.auto_install = false;
+    config.backup_enabled = true;
+    
+    if (!ota_handler || !ota_handler->begin(config)) {
         Serial.println("ERROR: OTA handler initialization failed");
         delete github_client; github_client = nullptr;
         delete ota_logger; ota_logger = nullptr;
@@ -442,9 +447,9 @@ bool initializePhase6OTA() {
     Serial.println("✓ OTA handler initialized");
     
     // Log current version information
-    Config::VersionManager::BuildInfo current_version = version_manager->getCurrentVersion();
-    Serial.printf("Current firmware: v%s (build %s)\n", current_version.version.c_str(), current_version.build_hash.c_str());
-    Serial.printf("Built: %s\n", current_version.build_date.c_str());
+    String current_version = version_manager->getCurrentVersion();
+    Serial.printf("Current firmware: v%s\n", current_version.c_str());
+    Serial.printf("System uptime: %lu seconds\n", millis() / 1000);
     
     Serial.println("Phase 6: Security & OTA Updates ready");
     return true;

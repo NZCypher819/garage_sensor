@@ -2,6 +2,7 @@
 
 #include <Arduino.h>
 #include <SPIFFS.h>
+#include <vector>
 #include <functional>
 
 namespace Security {

@@ -2,6 +2,7 @@
 
 #include <Arduino.h>
 #include <ArduinoJson.h>
+#include <vector>
 #include "../diagnostics/logger.h"
 
 namespace Network {
