@@ -50,6 +50,14 @@ public:
     bool begin(const String& owner, const String& repo);
 
     /**
+     * @brief Check for new releases
+     * @param version Current version to compare against
+     * @param release_info Output parameter for release information
+     * @return true if new release is available
+     */
+    bool checkForRelease(const String& version, ReleaseInfo& release_info);
+
+    /**
      * @brief Fetch latest release information from GitHub
      * @param release_info Output structure for release details
      * @param include_prereleases Include pre-release versions

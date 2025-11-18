@@ -2,6 +2,7 @@
 
 #include <Arduino.h>
 #include <ArduinoJson.h>
+#include <vector>
 
 namespace Config {
 
@@ -142,33 +143,12 @@ extern VersionManager& GlobalVersionManager();
 #define FIRMWARE_VERSION "1.0.0"
 #endif
 
-#ifndef BUILD_DATE
-#define BUILD_DATE __DATE__
+#ifndef GIT_COMMIT_HASH
+#define GIT_COMMIT_HASH "unknown"
 #endif
 
-#ifndef BUILD_TIME  
-#define BUILD_TIME __TIME__
+#ifndef GIT_BRANCH_NAME
+#define GIT_BRANCH_NAME "unknown"
 #endif
-
-#ifndef GIT_COMMIT
-#define GIT_COMMIT "unknown"
-#endif
-
-#ifndef GIT_BRANCH
-#define GIT_BRANCH "unknown"
-#endif
-
-/**
- * @brief Build information constants
- */
-namespace BuildConstants {
-    extern const char* VERSION;
-    extern const char* BUILD_DATE;
-    extern const char* BUILD_TIME;
-    extern const char* GIT_COMMIT;
-    extern const char* GIT_BRANCH;
-    extern const char* PLATFORM;
-    extern const bool DEBUG_BUILD;
-}
 
 } // namespace Config

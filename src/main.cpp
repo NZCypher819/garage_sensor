@@ -432,8 +432,8 @@ bool initializePhase6OTA() {
     Network::OTAHandler::UpdateConfiguration config;
     config.repository_owner = "NZCypher819";
     config.repository_name = "garage_sensor";
-    config.auto_install = false;
-    config.backup_enabled = true;
+    config.check_interval_ms = 3600000; // 1 hour
+    config.auto_check_enabled = false;
     
     if (!ota_handler || !ota_handler->begin(config)) {
         Serial.println("ERROR: OTA handler initialization failed");
@@ -463,42 +463,16 @@ void checkForOTAUpdates() {
     
     Serial.println("Checking for firmware updates...");
     
-    // Configure update parameters from .ota_config.json or defaults
-    Network::OTAHandler::UpdateConfig config;
-    config.repo_owner = "NZCypher819";         // Updated with actual username
-    config.repo_name = "garage_sensor";        // Updated with actual repo name
-    config.target_version = "latest";            // Check for latest release
-    config.auto_install = false;                 // Manual approval required for safety
-    config.backup_current = true;                // Always backup before update
-    config.verify_signature = true;              // Always verify integrity
+    // Simple update check - the stub implementation will handle this
+    Network::GitHubClient::ReleaseInfo release_info;
+    bool update_available = ota_handler->checkForUpdates(release_info);
     
-    // Check for updates (non-blocking)
-    Network::OTAHandler::UpdateResult result = ota_handler->checkForUpdate(config);
-    
-    switch (result) {
-        case Network::OTAHandler::UpdateResult::UPDATE_AVAILABLE:
-            Serial.println("UPDATE AVAILABLE: New firmware version found");
-            Serial.println("Manual approval required - check logs for details");
-            break;
-            
-        case Network::OTAHandler::UpdateResult::NO_UPDATE:
-            Serial.println("Firmware is up to date");
-            break;
-            
-        case Network::OTAHandler::UpdateResult::NETWORK_ERROR:
-            Serial.println("Update check failed - network error");
-            break;
-            
-        case Network::OTAHandler::UpdateResult::INVALID_RESPONSE:
-            Serial.println("Update check failed - invalid server response");
-            break;
-            
-        case Network::OTAHandler::UpdateResult::INSUFFICIENT_SPACE:
-            Serial.println("Update check failed - insufficient storage space");
-            break;
-            
-        default:
-            Serial.println("Update check failed - unknown error");
-            break;
+    if (update_available) {
+        Serial.println("✓ OTA update available");
+        if (ota_logger) {
+            ota_logger->logStage("check", "Update available from GitHub", Network::OTALogger::LogLevel::INFO, "update_check");
+        }
+    } else {
+        Serial.println("No OTA updates available");
     }
 }

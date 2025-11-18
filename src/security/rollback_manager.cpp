@@ -2,6 +2,14 @@
 
 namespace Security {
 
+RollbackManager::RollbackManager() {
+    Serial.println("RollbackManager: Created");
+}
+
+RollbackManager::~RollbackManager() {
+    // Destructor
+}
+
 bool RollbackManager::begin(const String& current_version) {
     Serial.println("RollbackManager: Initialized for " + current_version);
     return true;
@@ -10,7 +18,7 @@ bool RollbackManager::begin(const String& current_version) {
 bool RollbackManager::checkBootStatus(BootInfo& boot_info) {
     Serial.println("RollbackManager: Boot status OK");
     boot_info.consecutive_failures = 0;
-    boot_info.last_boot_time = millis();
+    boot_info.boot_time = millis();
     return true; // Boot OK
 }
 

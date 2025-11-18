@@ -31,6 +31,14 @@ public:
     ~IntegrityCheck();
 
     /**
+     * @brief Validate firmware integrity
+     * @param firmware_path Path to firmware file
+     * @param expected_hash Expected SHA256 hash
+     * @return true if validation successful
+     */
+    bool validateFirmware(const String& firmware_path, const String& expected_hash);
+
+    /**
      * @brief Calculate SHA256 hash of a file
      * @param file_path Path to file in SPIFFS
      * @param hash_output 64-character hex string output (must be pre-allocated)

@@ -2,6 +2,14 @@
 
 namespace Network {
 
+GitHubClient::GitHubClient() {
+    Serial.println("GitHubClient: Created");
+}
+
+GitHubClient::~GitHubClient() {
+    // Destructor
+}
+
 bool GitHubClient::begin(const String& owner, const String& repo) {
     Serial.println("GitHubClient: Initialized for " + owner + "/" + repo);
     return true;

@@ -76,6 +76,13 @@ public:
     bool checkForUpdates(GitHubClient::ReleaseInfo& release_info);
 
     /**
+     * @brief Perform firmware update 
+     * @param release_info Release information for update
+     * @return Update result status
+     */
+    UpdateResult performUpdate(const GitHubClient::ReleaseInfo& release_info);
+
+    /**
      * @brief Start automatic update process
      * @param progress_callback Optional progress reporting
      * @param result_callback Optional result notification
